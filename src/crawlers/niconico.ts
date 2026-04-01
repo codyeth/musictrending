@@ -1,6 +1,7 @@
 import axios from 'axios'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 export async function crawlNiconico() {
   logger.info('niconico', 'Starting Niconico crawl via VocaDB...')
@@ -33,6 +34,7 @@ export async function crawlNiconico() {
           url: `https://vocadb.net/S/${song.id}`,
           thumbnail,
           market: 'JP',
+          type: classifyTrend('NICONICO', 'JP'),
           rawData: JSON.stringify({ ratingScore: song.ratingScore, songType: song.songType }),
         },
       })

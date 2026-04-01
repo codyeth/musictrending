@@ -4,6 +4,7 @@ import OpenAI from 'openai'
 import prisma from '../db.js'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 const SUBS_FILE = path.resolve('data/subscriptions.json')
 
@@ -110,6 +111,7 @@ export async function crawlSubscriptions(): Promise<void> {
             title: s.title,
             artist: s.artist,
             market: s.market,
+            type: classifyTrend('MANUAL', s.market),
             rawData: JSON.stringify({ note: s.note, fromSubscription: sub.name }),
           },
         })

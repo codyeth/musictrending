@@ -2,6 +2,7 @@
 import googleTrends from 'google-trends-api'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 const KEYWORDS = [
   'funk music', 'phonk music', 'lo-fi music',
@@ -49,6 +50,7 @@ export async function crawlGoogleTrends() {
             title: keyword,
             artist: 'Google Trends Signal',
             market,
+            type: classifyTrend('GOOGLE_TRENDS', market),
             rawData: JSON.stringify({ velocity, recentScore: recent, geo }),
           },
         })

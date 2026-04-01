@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import prisma from '../db.js'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 const client = new OpenAI({
   baseURL: config.openrouter.apiBase,
@@ -92,6 +93,7 @@ export async function analyzeLink(url: string): Promise<AnalysisResult> {
         source: 'MANUAL',
         title: s.title,
         artist: s.artist,
+        type: classifyTrend('MANUAL', s.market),
         market: s.market,
         rawData: JSON.stringify({ reason: s.reason, suggestedFrom: url }),
       },

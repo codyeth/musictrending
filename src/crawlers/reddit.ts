@@ -2,6 +2,7 @@ import axios from 'axios'
 import prisma from '../db.js'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 const SUBREDDITS = [
   'funk', 'lofi', 'citypop', 'phonk', 'japanesemusic',
@@ -84,6 +85,7 @@ export async function crawlReddit() {
             artist,
             url: `https://reddit.com${data.permalink}`,
             market: 'US',
+            type: classifyTrend('REDDIT', 'US'),
             rawData: JSON.stringify({
               subreddit,
               score: data.score,

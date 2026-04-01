@@ -15,10 +15,11 @@ export function startDashboard() {
   // GET /api/trends
   app.get('/api/trends', async (req, res) => {
     try {
-      const { source, minScore, urgency, decided } = req.query
+      const { source, type, minScore, urgency, decided } = req.query
 
       const where: Record<string, unknown> = { status: 'COMPLETED' }
       if (source && source !== 'ALL') where.source = source
+      if (type && type !== 'ALL') where.type = type
       if (minScore) where.totalScore = { gte: parseInt(minScore as string) }
       if (urgency && urgency !== 'ALL') where.urgency = urgency
       if (decided === 'pending') where.decision = null

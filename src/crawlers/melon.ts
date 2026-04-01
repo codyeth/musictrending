@@ -2,6 +2,7 @@ import axios from 'axios'
 import * as cheerio from 'cheerio'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 export async function crawlMelon() {
   logger.info('melon', 'Starting Melon crawl via Kworb...')
@@ -37,6 +38,7 @@ export async function crawlMelon() {
             title,
             artist,
             market: 'KR',
+            type: classifyTrend('MELON', 'KR'),
             rawData: JSON.stringify({ rank: rank + 1, date: today }),
           },
         }).then(() => { saved++ })

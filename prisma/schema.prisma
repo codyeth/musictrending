@@ -40,11 +40,13 @@ model Trend {
   market      String?
   rawData     String?
 
+  type        String      @default("REMIX")
   totalScore  Int         @default(0)
   urgency     String?
   vibe        String?
   aiSuggest   String?
   scores      String?
+  alerted     Boolean     @default(false)
 
   status      TrendStatus @default(PENDING)
   createdAt   DateTime    @default(now())

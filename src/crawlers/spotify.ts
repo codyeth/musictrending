@@ -2,6 +2,7 @@ import axios from 'axios'
 import prisma from '../db.js'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
+import { classifyTrend } from '../utils/classify.js'
 
 const MARKETS = ['JP', 'US', 'KR', 'BR', 'ID'] as const
 type Market = typeof MARKETS[number]
@@ -89,7 +90,8 @@ export async function crawlSpotify() {
               artist: track.artist,
               url: track.url,
               market,
-              rawData: JSON.stringify({ rank: track.rank, type }),
+              type: classifyTrend('SPOTIFY', market),
+              rawData: JSON.stringify({ rank: track.rank, chartType: type }),
             },
           })
           saved++

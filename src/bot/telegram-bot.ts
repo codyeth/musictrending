@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
 import { analyzeLink } from '../processor/analyzer.js'
 import { saveSubscription, loadSubscriptions } from '../crawlers/subscriptions.js'
+import { loadChannels, removeChannel, addChannel, resolveChannelUrl } from '../crawlers/youtube-channels.js'
 import fs from 'fs'
 import path from 'path'
 
@@ -93,6 +94,7 @@ function kbManage(): IKB {
         { text: '📈 Thống kê', callback_data: 'cmd_status' },
         { text: '📤 Export CSV', callback_data: 'cmd_export' },
       ],
+      [{ text: '📺 Kênh YouTube đang theo dõi', callback_data: 'menu_channels' }],
       [{ text: '📋 Logs', callback_data: 'cmd_logs' }],
       [{ text: '🔙 Quay lại', callback_data: 'menu_main' }],
     ],
@@ -179,13 +181,15 @@ function formatTrend(trend: {
   title: string; artist: string; source: string; market: string | null
   totalScore: number; urgency: string | null; vibe: string | null
   aiSuggest: string | null; scores: string | null; rawData: string | null
+  url?: string | null; type?: string
 }): string {
   const emoji = urgencyEmoji(trend.urgency)
   const label = trend.urgency ?? 'NEW'
   const raw = safeJSON(trend.rawData)
+  const typeLabel = trend.type === 'IDEA' ? '💡 IDEA' : '🎵 REMIX'
 
   const lines = [
-    `${emoji} *${label}* — Score: *${trend.totalScore}/100*`,
+    `${typeLabel}  ${emoji} *${label}* — Score: *${trend.totalScore}/100*`,
     `━━━━━━━━━━━━━━━`,
     `🎵 ${trend.title} — ${trend.artist}`,
     `📡 ${trend.source} | ${trend.market ?? 'N/A'}`,
@@ -205,6 +209,29 @@ function formatTrend(trend: {
   lines.push(`💬 _${trend.vibe ?? 'Đang phân tích...'}_`)
   if (trend.aiSuggest) lines.push(`💡 ${trend.aiSuggest}`)
 
+  // Navigation links
+  const raw2 = safeJSON(trend.rawData)
+  const links: string[] = []
+  if (trend.url) {
+    links.push(`[🔗 Nguồn gốc](${trend.url})`)
+  }
+  const videoId = raw2.videoId as string | undefined
+  if (videoId) {
+    links.push(`[▶️ YouTube](https://www.youtube.com/watch?v=${videoId})`)
+  }
+  if (!trend.url && !videoId) {
+    // Fallback: generate search URL
+    const q = encodeURIComponent(`${trend.title} ${trend.artist}`)
+    const searchUrl = trend.source === 'NICONICO'
+      ? `https://www.nicovideo.jp/search/${q}`
+      : `https://www.youtube.com/results?search_query=${q}`
+    links.push(`[🔍 Tìm kiếm](${searchUrl})`)
+  }
+  if (links.length > 0) {
+    lines.push(``)
+    lines.push(links.join('  ·  '))
+  }
+
   return lines.join('\n')
 }
 
@@ -215,12 +242,30 @@ let bot: TelegramBot
 export function initBot(): TelegramBot {
   bot = new TelegramBot(config.telegram.botToken, { polling: true })
 
+  // Commands cho member/viewer
   bot.setMyCommands([
     { command: 'start', description: 'Mở menu chính' },
+    { command: 'top', description: 'Xem top trends chưa duyệt' },
+    { command: 'link', description: 'Phân tích link YouTube/NicoNico' },
+    { command: 'add', description: 'Thêm trend thủ công' },
+    { command: 'crawl', description: 'Crawl tất cả nguồn ngay' },
     { command: 'help', description: 'Hướng dẫn sử dụng' },
-    { command: 'adduser', description: 'Thêm user: /adduser <id> member|viewer (Admin)' },
-    { command: 'removeuser', description: 'Xóa user: /removeuser <id> (Admin)' },
   ]).catch(() => {})
+
+  // Commands bổ sung cho admin (hiển thị thêm)
+  bot.setMyCommands([
+    { command: 'start', description: 'Mở menu chính' },
+    { command: 'top', description: 'Xem top trends chưa duyệt' },
+    { command: 'link', description: 'Phân tích link YouTube/NicoNico' },
+    { command: 'add', description: 'Thêm trend thủ công' },
+    { command: 'crawl', description: 'Crawl tất cả nguồn ngay' },
+    { command: 'status', description: 'Thống kê pipeline' },
+    { command: 'export', description: 'Xuất CSV bài đã duyệt' },
+    { command: 'addchannel', description: 'Theo dõi kênh YT: /addchannel <channelId> <tên> <market> <genre>' },
+    { command: 'adduser', description: 'Thêm user: /adduser <id> member|viewer' },
+    { command: 'removeuser', description: 'Xóa user: /removeuser <id>' },
+    { command: 'help', description: 'Hướng dẫn sử dụng' },
+  ], { scope: { type: 'all_private_chats' } }).catch(() => {})
 
   registerCallbacks()
   registerCommands()
@@ -285,6 +330,97 @@ function registerCallbacks(): void {
         chat_id: chatId, message_id: msgId,
         parse_mode: 'Markdown', reply_markup: kbManage(),
       })
+      return
+    }
+
+    // ── Channel list ─────────────────────────────────────────────
+
+    if (data === 'menu_channels' || data === 'menu_channels_refresh') {
+      if (role !== 'admin') return
+      const channels = loadChannels()
+
+      if (channels.length === 0) {
+        await bot.editMessageText('Chưa có kênh nào. Dùng /addchannel để thêm.', {
+          chat_id: chatId, message_id: msgId,
+          reply_markup: kbBack('menu_manage'),
+        })
+        return
+      }
+
+      // Group by market
+      const byMarket: Record<string, typeof channels> = {}
+      for (const ch of channels) {
+        if (!byMarket[ch.market]) byMarket[ch.market] = []
+        byMarket[ch.market]!.push(ch)
+      }
+
+      const lines = Object.entries(byMarket).map(([market, chs]) =>
+        `*${market}* (${chs.length} kênh)\n` + chs.map(c => `  • ${c.name} — ${c.genre}`).join('\n')
+      ).join('\n\n')
+
+      const removeButtons = channels.map(ch => ([{
+        text: `🗑 ${ch.name}`,
+        callback_data: `cmd_removechannel_${ch.id}`,
+      }]))
+
+      await bot.editMessageText(
+        `📺 *Kênh YouTube đang theo dõi* (${channels.length})\n\n${lines}\n\nNhấn để xóa:`,
+        {
+          chat_id: chatId, message_id: msgId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...removeButtons,
+              [{ text: '🔙 Quay lại', callback_data: 'menu_manage' }],
+            ],
+          },
+        }
+      )
+      return
+    }
+
+    if (data.startsWith('cmd_removechannel_')) {
+      if (role !== 'admin') return
+      const id = data.replace('cmd_removechannel_', '')
+      const channels = loadChannels()
+      const ch = channels.find(c => c.id === id)
+      removeChannel(id)
+      await bot.answerCallbackQuery(query.id, { text: `Đã xóa ${ch?.name ?? id}` })
+      // Refresh channel list
+      const remaining = loadChannels()
+      if (remaining.length === 0) {
+        await bot.editMessageText('Không còn kênh nào.', {
+          chat_id: chatId, message_id: msgId,
+          reply_markup: kbBack('menu_manage'),
+        })
+        return
+      }
+      // Re-render list
+      const byMarket: Record<string, typeof remaining> = {}
+      for (const c of remaining) {
+        if (!byMarket[c.market]) byMarket[c.market] = []
+        byMarket[c.market]!.push(c)
+      }
+      const lines = Object.entries(byMarket).map(([market, chs]) =>
+        `*${market}* (${chs.length} kênh)\n` + chs.map(c => `  • ${c.name} — ${c.genre}`).join('\n')
+      ).join('\n\n')
+      const removeButtons = remaining.map(c => ([{
+        text: `🗑 ${c.name}`,
+        callback_data: `cmd_removechannel_${c.id}`,
+      }]))
+      await bot.editMessageText(
+        `📺 *Kênh YouTube đang theo dõi* (${remaining.length})\n\n${lines}\n\nNhấn để xóa:`,
+        {
+          chat_id: chatId, message_id: msgId,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...removeButtons,
+              [{ text: '🔙 Quay lại', callback_data: 'menu_manage' }],
+            ],
+          },
+        }
+      )
       return
     }
 
@@ -544,6 +680,111 @@ function registerCommands(): void {
     })
   })
 
+  bot.onText(/\/top/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    const role = getRole(userId)
+    if (!role) { await denyAccess(msg.chat.id, userId); return }
+
+    const trends = await prisma.trend.findMany({
+      where: { status: 'COMPLETED', decision: null },
+      orderBy: { totalScore: 'desc' },
+      take: 5,
+    })
+    if (trends.length === 0) {
+      await bot.sendMessage(msg.chat.id, 'Không có trend nào đang chờ duyệt.')
+      return
+    }
+    for (const trend of trends) {
+      const text = formatTrend(trend)
+      const keyboard = canDecide(role) ? kbDecision(trend.id) : undefined
+      if (trend.thumbnail) {
+        await bot.sendPhoto(msg.chat.id, trend.thumbnail, { caption: text, parse_mode: 'Markdown', reply_markup: keyboard })
+      } else {
+        await bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown', reply_markup: keyboard })
+      }
+    }
+  })
+
+  bot.onText(/\/link/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    const role = getRole(userId)
+    if (!role) { await denyAccess(msg.chat.id, userId); return }
+    if (!canDecide(role)) { await bot.sendMessage(msg.chat.id, '⛔ Bạn không có quyền dùng tính năng này.'); return }
+    userModes.set(userId, 'analyze_link')
+    await bot.sendMessage(msg.chat.id,
+      `🔗 *Theo dõi link*\n\nGửi link YouTube hoặc NicoNico của bài nhạc bạn muốn phân tích.\n\n_Gõ /cancel để hủy_`,
+      { parse_mode: 'Markdown' }
+    )
+  })
+
+  bot.onText(/\/add/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    const role = getRole(userId)
+    if (!role) { await denyAccess(msg.chat.id, userId); return }
+    if (!canDecide(role)) { await bot.sendMessage(msg.chat.id, '⛔ Bạn không có quyền dùng tính năng này.'); return }
+    userModes.set(userId, 'add_trend')
+    await bot.sendMessage(msg.chat.id,
+      `➕ *Thêm Trend Thủ Công*\n\nGửi tên bài theo định dạng:\n\`Tên bài - Tên artist\`\n\nVí dụ: \`APT. - ROSE\`\n\n_Gõ /cancel để hủy_`,
+      { parse_mode: 'Markdown' }
+    )
+  })
+
+  bot.onText(/\/crawl/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    const role = getRole(userId)
+    if (!role) { await denyAccess(msg.chat.id, userId); return }
+    if (!canDecide(role)) { await bot.sendMessage(msg.chat.id, '⛔ Bạn không có quyền dùng tính năng này.'); return }
+    await bot.sendMessage(msg.chat.id, '⏳ *Đang crawl tất cả nguồn...*\nVui lòng chờ ~30 giây', { parse_mode: 'Markdown' })
+    process.emit('crawlnow' as never)
+  })
+
+  bot.onText(/\/status/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    if (getRole(userId) !== 'admin') { await denyAccess(msg.chat.id, userId); return }
+    const [pending, completed, approved, rush] = await Promise.all([
+      prisma.trend.count({ where: { status: 'PENDING' } }),
+      prisma.trend.count({ where: { status: 'COMPLETED' } }),
+      prisma.decision.count({ where: { action: 'APPROVE' } }),
+      prisma.trend.count({ where: { urgency: 'RUSH', status: 'COMPLETED', decision: null } }),
+    ])
+    await bot.sendMessage(msg.chat.id,
+      `📈 *Pipeline Status*\n\nChờ score: ${pending}\nĐã score: ${completed}\nĐã duyệt: ${approved}\n🔴 RUSH chưa duyệt: ${rush}`,
+      { parse_mode: 'Markdown' }
+    )
+  })
+
+  bot.onText(/\/export/, async (msg) => {
+    const userId = msg.from?.id ?? 0
+    if (getRole(userId) !== 'admin') { await denyAccess(msg.chat.id, userId); return }
+    const approved = await prisma.decision.findMany({
+      where: { action: 'APPROVE' },
+      include: { trend: true },
+      orderBy: { decidedAt: 'desc' },
+    })
+    if (approved.length === 0) {
+      await bot.sendMessage(msg.chat.id, 'Chưa có bài nào được duyệt.')
+      return
+    }
+    const csv = [
+      'Title,Artist,Source,Market,Score,BPM,Style,MarketProgression,LeadTimeWeeks,Vibe,AISuggest,DecidedAt',
+      ...approved.map(d => {
+        const raw = safeJSON(d.trend.rawData)
+        return [
+          d.trend.title, d.trend.artist, d.trend.source, d.trend.market ?? '',
+          d.trend.totalScore, raw.bpm ?? '', raw.style ?? '',
+          raw.marketProgression ?? '', raw.leadTimeWeeks ?? '',
+          (d.trend.vibe ?? '').replace(/"/g, '""'),
+          (d.trend.aiSuggest ?? '').replace(/"/g, '""'),
+          d.decidedAt.toISOString(),
+        ].map(v => `"${v}"`).join(',')
+      }),
+    ].join('\n')
+    await bot.sendDocument(msg.chat.id, Buffer.from(csv), {}, {
+      filename: `approved-trends-${new Date().toISOString().split('T')[0]}.csv`,
+      contentType: 'text/csv',
+    })
+  })
+
   bot.onText(/\/cancel/, async (msg) => {
     const userId = msg.from?.id ?? 0
     userModes.delete(userId)
@@ -552,6 +793,52 @@ function registerCommands(): void {
     await bot.sendMessage(msg.chat.id, txtMainMenu(role), {
       parse_mode: 'Markdown', reply_markup: kbMain(role),
     })
+  })
+
+  // /addchannel <youtube_url> <market> [genre]
+  bot.onText(/\/addchannel (.+)/, async (msg, match) => {
+    const userId = msg.from?.id ?? 0
+    if (getRole(userId) !== 'admin') { await denyAccess(msg.chat.id, userId); return }
+
+    const parts = (match![1] ?? '').trim().split(' ')
+    const urlOrId = parts[0] ?? ''
+    const market = parts[1]?.toUpperCase() ?? 'US'
+    const genre = parts.slice(2).join(' ') || 'funk'
+
+    if (!urlOrId) {
+      await bot.sendMessage(msg.chat.id,
+        `⚠️ Cú pháp:\n\`/addchannel <youtube_url> <market> [genre]\`\n\nVí dụ:\n\`/addchannel https://youtube.com/@vulfpeck US funk\`\n\`/addchannel https://youtube.com/@yoasobi JP j-pop\``,
+        { parse_mode: 'Markdown' }
+      )
+      return
+    }
+
+    // If it's already a UC... ID, use directly
+    if (urlOrId.startsWith('UC') && urlOrId.length === 24) {
+      addChannel({ channelId: urlOrId, name: urlOrId, market, genre })
+      await bot.sendMessage(msg.chat.id,
+        `✅ Đã thêm channel ID \`${urlOrId}\` (${market})\n\nBot crawl lúc 09:00 và 18:00 hàng ngày.`,
+        { parse_mode: 'Markdown' }
+      )
+      return
+    }
+
+    const loadingMsg = await bot.sendMessage(msg.chat.id, '⏳ Đang lấy thông tin kênh...')
+
+    const resolved = await resolveChannelUrl(urlOrId)
+    if (!resolved) {
+      await bot.editMessageText(
+        `❌ Không lấy được channel ID từ URL này.\n\nThử dùng URL dạng:\n\`https://youtube.com/@channelname\``,
+        { chat_id: msg.chat.id, message_id: loadingMsg.message_id, parse_mode: 'Markdown' }
+      )
+      return
+    }
+
+    addChannel({ channelId: resolved.channelId, name: resolved.name, market, genre })
+    await bot.editMessageText(
+      `✅ Đã thêm kênh *${resolved.name}* (${market})\nID: \`${resolved.channelId}\`\n\nBot crawl lúc 09:00 và 18:00 hàng ngày.`,
+      { chat_id: msg.chat.id, message_id: loadingMsg.message_id, parse_mode: 'Markdown' }
+    )
   })
 
   // /adduser <id> member|viewer
@@ -708,6 +995,7 @@ export async function pushAlert(trend: {
   id: number; title: string; artist: string; source: string; market: string | null
   totalScore: number; urgency: string | null; vibe: string | null
   aiSuggest: string | null; scores: string | null; thumbnail: string | null; rawData: string | null
+  url?: string | null; type?: string
 }): Promise<void> {
   if (!bot) return
 

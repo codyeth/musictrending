@@ -8,30 +8,57 @@ const client = new OpenAI({
   apiKey: config.openrouter.apiKey,
 })
 
-const SYSTEM_PROMPT = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
-Nhiệm vụ: Chấm điểm mỗi trend theo 6 tiêu chí sau (điểm tối đa ghi trong ngoặc):
+const SYSTEM_PROMPT_REMIX = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
+Các trend dưới đây là loại REMIX — bài nhạc cụ thể đang viral, team có thể remake/cover ngay.
+Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Bài mới ra/trend mới nổi được nhiều điểm. Đã cũ trên 30 ngày = 0đ.
-2. revenuePotential (25đ): CPM thị trường - US/JP = cao nhất, KR/BR = trung bình, ID = thấp hơn.
-3. velocity (20đ): Tốc độ tăng views/rank/mentions trong 7 ngày gần nhất.
-4. crossPlatform (15đ): Có dấu hiệu viral chéo nhiều nền tảng không.
-5. feasibility (10đ): Team instrumental/funk có làm lại được style này không.
-6. saturation (5đ): Ít bài tương tự trên thị trường = điểm cao. Đã bão hòa = thấp.
+1. leadTime (25đ): Bài mới ra trong 14 ngày = điểm cao nhất. Quá 30 ngày = 0đ.
+2. revenuePotential (25đ): CPM thị trường - US/BR/KR = cao, ID = trung bình.
+3. velocity (20đ): Tốc độ tăng views/streams/rank trong 7 ngày gần nhất.
+4. crossPlatform (15đ): Viral chéo Spotify + YouTube + TikTok cùng lúc = điểm cao.
+5. feasibility (10đ): Team instrumental/funk có remake được không. Vocal rõ ràng, melody dễ bắt = cao.
+6. saturation (5đ): Ít bài cover tương tự đã có = điểm cao.
 
-Ngoài điểm số, hãy cung cấp thêm các thông tin phân tích sau:
-- bpm: ước tính range BPM (ví dụ "120-130 BPM")
-- style: mô tả ngắn về style, nhạc cụ chủ đạo, aesthetic (ví dụ "Lo-fi hip hop, piano + guitar, chill aesthetic")
-- refTracks: 2-3 bài nhạc tương tự làm reference, mỗi bài gồm title, artist, viewCount (ước tính dạng "12M views"), source ("youtube" hoặc "niconico"), searchQuery (chuỗi tìm kiếm để tìm đúng video)
-- saturation: ước tính số lượng bài tương tự đang có trên thị trường, theo từng market liên quan (ví dụ {"jp": "~500 bài (ước tính)", "us": "~1.2K (ước tính)"})
-- cpm: ước tính CPM YouTube theo từng market (ví dụ {"jp": "$8-12", "us": "$4-8", "br": "$1-2", "kr": "$3-5", "id": "$0.5-1"})
-- marketProgression: chuỗi mô tả trend này lan từ thị trường nào sang thị trường nào theo thời gian (ví dụ "JP (Week 0) → US (Week 3-4) → BR (Week 5)")
-- leadTimeWeeks: số tuần còn lại để team có thể làm kịp (số nguyên, 0 nếu đã quá muộn)
-- tags: mảng 3-5 tag mô tả trend (ví dụ ["anime", "lo-fi", "chill", "jp"])
+Thông tin bổ sung cần trả về:
+- bpm: ước tính range BPM
+- style: nhạc cụ chủ đạo, vibe, aesthetic (tiếng Việt)
+- refTracks: 2-3 bài tương tự để tham khảo (title, artist, viewCount, source "youtube"/"niconico", searchQuery)
+- saturation: số bài cover đã có trên thị trường theo market (ước tính)
+- cpm: CPM YouTube theo market
+- marketProgression: thứ tự thị trường lan theo tuần
+- leadTimeWeeks: số tuần còn lại để làm kịp (0 = đã muộn)
+- tags: 3-5 tag mô tả
 
-QUAN TRỌNG: Tất cả nội dung text (vibe, aiSuggest, style, note trong refTracks) phải viết bằng TIẾNG VIỆT.
+QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT.
 
-Khi được hỏi nhiều trend, trả về mảng JSON, không có text nào khác:
-[{ "index": 1, "scores": { "leadTime": <số>, "revenuePotential": <số>, "velocity": <số>, "crossPlatform": <số>, "feasibility": <số>, "saturation": <số> }, "totalScore": <tổng>, "vibe": "<nhận xét bằng tiếng Việt>", "aiSuggest": "<gợi ý bằng tiếng Việt>", "bpm": "<range>", "style": "<mô tả bằng tiếng Việt>", "refTracks": [{"title": "...", "artist": "...", "viewCount": "...", "source": "youtube", "searchQuery": "..."}], "saturation": {"jp": "...", "us": "..."}, "cpm": {"jp": "...", "us": "..."}, "marketProgression": "...", "leadTimeWeeks": <số>, "tags": ["..."] }]`
+Trả về mảng JSON, không có text khác:
+[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "tags": [...] }]`
+
+const SYSTEM_PROMPT_IDEA = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
+Các trend dưới đây là loại IDEA — tín hiệu hành vi người dùng, hướng làm nhạc, không nhất thiết là bài cụ thể.
+Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
+
+1. leadTime (25đ): Trend đang nổi trong 14 ngày = điểm cao. Đã qua đỉnh = thấp.
+2. revenuePotential (25đ): Nếu làm theo hướng này, tiềm năng CPM thị trường đích là bao nhiêu.
+3. velocity (20đ): Tốc độ tăng search volume / engagement trong 7 ngày gần nhất.
+4. crossPlatform (15đ): Hướng này đang được quan tâm trên nhiều nền tảng không.
+5. feasibility (10đ): Team instrumental/funk có thể khai thác hướng này không. Nhạc đại chúng, dễ nghe = cao.
+6. saturation (5đ): Thị trường nhạc theo hướng này còn chỗ trống không.
+
+Thông tin bổ sung cần trả về:
+- bpm: ước tính range BPM phù hợp với hướng này
+- style: mô tả hướng làm (tiếng Việt) — vibe, instrument, audience
+- refTracks: 2-3 bài nhạc gần nhất theo hướng này để tham khảo
+- saturation: mức độ bão hòa theo market
+- cpm: CPM YouTube theo market tiềm năng
+- marketProgression: hướng này đang lan từ đâu sang đâu
+- leadTimeWeeks: còn bao nhiêu tuần để khai thác
+- tags: 3-5 tag mô tả hướng
+
+QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT. aiSuggest phải rõ ràng đây là gợi ý hướng làm, không phải bài cụ thể.
+
+Trả về mảng JSON, không có text khác:
+[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "tags": [...] }]`
 
 interface ScoreResult {
   scores: Record<string, number>
@@ -48,16 +75,20 @@ interface ScoreResult {
   tags?: string[]
 }
 
-async function scoreBatch(trends: Array<{ id: number; title: string; artist: string; source: string; market: string | null; rawData: string | null }>) {
+async function scoreBatch(trends: Array<{ id: number; title: string; artist: string; source: string; market: string | null; rawData: string | null; type: string }>) {
+  // Split by type so each batch uses the right prompt
+  const batchType = trends[0]?.type === 'IDEA' ? 'IDEA' : 'REMIX'
+  const systemPrompt = batchType === 'IDEA' ? SYSTEM_PROMPT_IDEA : SYSTEM_PROMPT_REMIX
+
   const input = trends.map((t, i) =>
-    `${i + 1}. "${t.title}" by ${t.artist} | Source: ${t.source} | Market: ${t.market ?? 'Unknown'} | Data: ${t.rawData ?? '{}'}`
+    `${i + 1}. "${t.title}" by ${t.artist} | Nguồn: ${t.source} | Thị trường: ${t.market ?? 'Unknown'} | Data: ${t.rawData ?? '{}'}`
   ).join('\n')
 
   const res = await client.chat.completions.create({
     model: config.openrouter.model,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: `Chấm điểm ${trends.length} trend sau:\n\n${input}\n\nTrả về mảng JSON đầy đủ gồm scores, totalScore, vibe, aiSuggest, bpm, style, refTracks, saturation, cpm, marketProgression, leadTimeWeeks, tags cho mỗi trend.` }
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Chấm điểm ${trends.length} trend loại ${batchType} sau:\n\n${input}\n\nTrả về mảng JSON đầy đủ.` }
     ],
     temperature: 0.3,
   })
@@ -98,15 +129,20 @@ export async function runScorer() {
     return
   }
 
-  const pending = await prisma.trend.findMany({
+  const allPending = await prisma.trend.findMany({
     where: { status: 'PENDING' },
-    take: 5,
+    take: 10,
     orderBy: { createdAt: 'asc' },
   })
 
-  if (pending.length === 0) return
+  if (allPending.length === 0) return
 
-  logger.info('scorer', `Scoring batch of ${pending.length} trends...`)
+  // Group by type so each batch uses the correct prompt
+  const remixBatch = allPending.filter(t => t.type !== 'IDEA').slice(0, 5)
+  const ideaBatch = allPending.filter(t => t.type === 'IDEA').slice(0, 5)
+  const pending = remixBatch.length > 0 ? remixBatch : ideaBatch
+
+  logger.info('scorer', `Scoring batch of ${pending.length} trends (type: ${pending[0]?.type ?? '?'})...`)
 
   // Mark as processing
   await prisma.trend.updateMany({
