@@ -9,19 +9,8 @@ const GEO_MAP: Record<string, string> = {
   US: 'US', JP: 'JP', KR: 'KR', BR: 'BR', ID: 'ID'
 }
 
-const MUSIC_KEYWORDS = [
-  'music', 'song', 'nhạc', 'funk', 'pop', 'remix', 'beat',
-  'mv', 'album', 'single', 'track', 'playlist', 'official',
-  'city pop', 'phonk', 'lo-fi', 'k-pop', 'j-pop',
-]
-
-function isMusicRelated(title: string): boolean {
-  const lower = title.toLowerCase()
-  return MUSIC_KEYWORDS.some(k => lower.includes(k))
-}
-
 async function fetchDailyTrends(geo: string): Promise<Array<{ title: string; traffic: string }>> {
-  const url = `https://trends.google.com/trends/trendingsearches/daily/rss?geo=${geo}`
+  const url = `https://trends.google.com/trending/rss?geo=${geo}`
   const res = await axios.get(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; music-tool/1.0)' },
     timeout: 15000,
@@ -49,8 +38,6 @@ export async function crawlGoogleTrends() {
       const trends = await fetchDailyTrends(geo)
 
       for (const trend of trends) {
-        if (!isMusicRelated(trend.title)) continue
-
         const externalId = `gtrends_${geo}_${trend.title.replace(/\s+/g, '_').slice(0, 40)}_${today}`
         const existing = await prisma.trend.findUnique({ where: { externalId } })
         if (existing) continue
