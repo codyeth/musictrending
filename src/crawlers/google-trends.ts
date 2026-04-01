@@ -1,45 +1,57 @@
-// @ts-ignore — no official types
-import googleTrends from 'google-trends-api'
+import axios from 'axios'
+import * as cheerio from 'cheerio'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
 import { classifyTrend } from '../utils/classify.js'
 
-const KEYWORDS = [
-  'funk music', 'phonk music', 'lo-fi music',
-  'city pop', 'japanese funk', 'brazilian funk'
-]
-
+// Google Trends daily trending searches RSS — no API key needed
 const GEO_MAP: Record<string, string> = {
   US: 'US', JP: 'JP', KR: 'KR', BR: 'BR', ID: 'ID'
 }
 
+const MUSIC_KEYWORDS = [
+  'music', 'song', 'nhạc', 'funk', 'pop', 'remix', 'beat',
+  'mv', 'album', 'single', 'track', 'playlist', 'official',
+  'city pop', 'phonk', 'lo-fi', 'k-pop', 'j-pop',
+]
+
+function isMusicRelated(title: string): boolean {
+  const lower = title.toLowerCase()
+  return MUSIC_KEYWORDS.some(k => lower.includes(k))
+}
+
+async function fetchDailyTrends(geo: string): Promise<Array<{ title: string; traffic: string }>> {
+  const url = `https://trends.google.com/trends/trendingsearches/daily/rss?geo=${geo}`
+  const res = await axios.get(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; music-tool/1.0)' },
+    timeout: 15000,
+  })
+
+  const $ = cheerio.load(res.data, { xmlMode: true })
+  const items: Array<{ title: string; traffic: string }> = []
+
+  $('item').each((_i, el) => {
+    const title = $(el).find('title').first().text().trim()
+    const traffic = $(el).find('ht\\:approx_traffic').text().trim() || ''
+    if (title) items.push({ title, traffic })
+  })
+
+  return items
+}
+
 export async function crawlGoogleTrends() {
-  logger.info('google-trends', 'Starting Google Trends crawl...')
+  logger.info('google-trends', 'Starting Google Trends daily RSS crawl...')
   let saved = 0
   const today = new Date().toISOString().split('T')[0]
 
-  for (const keyword of KEYWORDS) {
-    for (const [market, geo] of Object.entries(GEO_MAP)) {
-      try {
-        const result = await googleTrends.interestOverTime({
-          keyword,
-          geo,
-          startTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
-        })
+  for (const [market, geo] of Object.entries(GEO_MAP)) {
+    try {
+      const trends = await fetchDailyTrends(geo)
 
-        const data = JSON.parse(result)
-        const timelineData: Array<{ value: number[] }> = data?.default?.timelineData ?? []
+      for (const trend of trends) {
+        if (!isMusicRelated(trend.title)) continue
 
-        if (timelineData.length < 2) continue
-
-        const recent = timelineData[timelineData.length - 1]?.value[0] ?? 0
-        const previous = timelineData[timelineData.length - 4]?.value[0] ?? 1 // 3 points ago
-
-        const velocity = previous > 0 ? Math.round(((recent - previous) / previous) * 100) : 0
-
-        if (velocity < 30) continue // ignore flat trends
-
-        const externalId = `gtrends_${keyword.replace(/ /g, '_')}_${market}_${today}`
+        const externalId = `gtrends_${geo}_${trend.title.replace(/\s+/g, '_').slice(0, 40)}_${today}`
         const existing = await prisma.trend.findUnique({ where: { externalId } })
         if (existing) continue
 
@@ -47,19 +59,19 @@ export async function crawlGoogleTrends() {
           data: {
             externalId,
             source: 'GOOGLE_TRENDS',
-            title: keyword,
+            title: trend.title,
             artist: 'Google Trends Signal',
             market,
             type: classifyTrend('GOOGLE_TRENDS', market),
-            rawData: JSON.stringify({ velocity, recentScore: recent, geo }),
+            rawData: JSON.stringify({ traffic: trend.traffic, geo, date: today }),
           },
         })
         saved++
-
-        await new Promise(r => setTimeout(r, 1000)) // rate limit
-      } catch (err) {
-        logger.warn('google-trends', `Failed ${keyword} / ${market}: ${err instanceof Error ? err.message : String(err)}`)
       }
+
+      await new Promise(r => setTimeout(r, 1500)) // polite rate limit
+    } catch (err) {
+      logger.warn('google-trends', `Failed ${market}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

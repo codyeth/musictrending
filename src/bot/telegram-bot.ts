@@ -220,8 +220,11 @@ function formatTrend(trend: {
     links.push(`[▶️ YouTube](https://www.youtube.com/watch?v=${videoId})`)
   }
   if (!trend.url && !videoId) {
-    // Fallback: generate search URL
-    const q = encodeURIComponent(`${trend.title} ${trend.artist}`)
+    // Fallback: generate search URL — use title only for system/platform sources
+    const SYSTEM_ARTISTS = ['Google Trends Signal', 'Manual', 'Unknown', 'Billboard', 'Apple Music', 'Shazam']
+    const isSystemArtist = SYSTEM_ARTISTS.some(a => trend.artist.includes(a))
+    const searchQuery = isSystemArtist ? trend.title : `${trend.title} ${trend.artist}`
+    const q = encodeURIComponent(searchQuery)
     const searchUrl = trend.source === 'NICONICO'
       ? `https://www.nicovideo.jp/search/${q}`
       : `https://www.youtube.com/results?search_query=${q}`

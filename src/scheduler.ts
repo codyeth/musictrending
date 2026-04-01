@@ -4,6 +4,9 @@ import { crawlReddit } from './crawlers/reddit.js'
 import { crawlNiconico } from './crawlers/niconico.js'
 import { crawlMelon } from './crawlers/melon.js'
 import { crawlGoogleTrends } from './crawlers/google-trends.js'
+import { crawlAppleMusic } from './crawlers/apple-music.js'
+import { crawlShazam } from './crawlers/shazam.js'
+import { crawlBillboard } from './crawlers/billboard.js'
 import { crawlSubscriptions } from './crawlers/subscriptions.js'
 import { crawlYoutubeChannels, initDefaultChannels } from './crawlers/youtube-channels.js'
 import { runScorer } from './processor/scorer.js'
@@ -35,11 +38,14 @@ async function checkAndAlert() {
 
 export function startScheduler() {
   initDefaultChannels()
-  // 07:00 — Spotify + Melon
+  // 07:00 — Spotify + Melon + Apple Music + Shazam + Billboard
   cron.schedule('0 7 * * *', async () => {
-    logger.info('scheduler', 'Running 07:00 job: Spotify + Melon')
+    logger.info('scheduler', 'Running 07:00 job: Spotify + Melon + Apple Music + Shazam + Billboard')
     await crawlSpotify()
     await crawlMelon()
+    await crawlAppleMusic()
+    await crawlShazam()
+    await crawlBillboard()
   })
 
   // 08:00 — Google Trends
