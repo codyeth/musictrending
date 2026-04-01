@@ -514,7 +514,108 @@ function registerCallbacks(): void {
           reply_markup: {
             inline_keyboard: [
               ...channelButtons,
+              [{ text: '⚙️ Quản lý kênh theo dõi', callback_data: 'menu_channels_manage' }],
               [{ text: '🔙 Quay lại', callback_data: 'menu_trends' }],
+            ],
+          },
+        }
+      )
+      return
+    }
+
+    // ── Channel manage (from /link screen, member+) ───────────────
+
+    if (data === 'menu_channels_manage' || data === 'menu_channels_manage_refresh') {
+      if (!canDecide(role)) return
+      const channels = loadChannels()
+
+      if (channels.length === 0) {
+        await bot.editMessageText(
+          `📺 *Kênh đang theo dõi*\n\nChưa có kênh nào.\nGửi link YouTube channel để thêm vào theo dõi.`,
+          {
+            chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '➕ Thêm kênh', callback_data: 'cmd_addchannel' }],
+                [{ text: '🔙 Quay lại', callback_data: 'cmd_link' }],
+              ],
+            },
+          }
+        )
+        return
+      }
+
+      const rows: TelegramBot.InlineKeyboardButton[][] = channels.map(ch => ([
+        { text: `📺 ${ch.name} (${ch.market})`, url: `https://www.youtube.com/channel/${ch.channelId}` },
+        { text: '🗑', callback_data: `cmd_rmch_${ch.id}` },
+      ]))
+
+      await bot.editMessageText(
+        `📺 *Kênh đang theo dõi* (${channels.length})\n\nBấm 🗑 để xóa kênh:`,
+        {
+          chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...rows,
+              [{ text: '➕ Thêm kênh', callback_data: 'cmd_addchannel' }],
+              [{ text: '🔙 Quay lại', callback_data: 'cmd_link' }],
+            ],
+          },
+        }
+      )
+      return
+    }
+
+    // ── Add channel (set input mode) ──────────────────────────────
+
+    if (data === 'cmd_addchannel') {
+      if (!canDecide(role)) return
+      userModes.set(userId, 'add_channel')
+      await bot.editMessageText(
+        `➕ *Thêm kênh theo dõi*\n\nGửi link YouTube channel:\n\`https://youtube.com/@tenkenhnh\`\n\nBot sẽ tự xác định channel ID.\n\n_Gõ /cancel để hủy_`,
+        { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+      )
+      return
+    }
+
+    // ── Remove channel (inline) ───────────────────────────────────
+
+    if (data.startsWith('cmd_rmch_')) {
+      if (!canDecide(role)) return
+      const id = data.replace('cmd_rmch_', '')
+      const ch = loadChannels().find(c => c.id === id)
+      removeChannel(id)
+      await bot.answerCallbackQuery(query.id, { text: `Đã xóa ${ch?.name ?? ''}` })
+      // Re-render list
+      const remaining = loadChannels()
+      if (remaining.length === 0) {
+        await bot.editMessageText(
+          `📺 *Kênh đang theo dõi*\n\nChưa có kênh nào.`,
+          {
+            chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '➕ Thêm kênh', callback_data: 'cmd_addchannel' }],
+                [{ text: '🔙 Quay lại', callback_data: 'cmd_link' }],
+              ],
+            },
+          }
+        )
+        return
+      }
+      const rows: TelegramBot.InlineKeyboardButton[][] = remaining.map(c => ([
+        { text: `📺 ${c.name} (${c.market})`, url: `https://www.youtube.com/channel/${c.channelId}` },
+        { text: '🗑', callback_data: `cmd_rmch_${c.id}` },
+      ]))
+      await bot.editMessageText(
+        `📺 *Kênh đang theo dõi* (${remaining.length})\n\nBấm 🗑 để xóa kênh:`,
+        {
+          chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...rows,
+              [{ text: '➕ Thêm kênh', callback_data: 'cmd_addchannel' }],
+              [{ text: '🔙 Quay lại', callback_data: 'cmd_link' }],
             ],
           },
         }
@@ -1002,6 +1103,28 @@ function registerMessageHandler(): void {
           `❌ Lỗi: ${err instanceof Error ? err.message : 'Không thể phân tích link này.'}`,
           { chat_id: msg.chat.id, message_id: loadingMsg.message_id }
         )
+      }
+      return
+    }
+
+    if (mode === 'add_channel') {
+      userModes.delete(userId)
+      const url = msg.text.trim()
+      await bot.sendMessage(msg.chat.id, '⏳ Đang xác định channel...', { parse_mode: 'Markdown' })
+      try {
+        const resolved = await resolveChannelUrl(url)
+        if (!resolved) {
+          await bot.sendMessage(msg.chat.id, '❌ Không tìm được channel ID. Thử link khác nhé.\n\nVí dụ: `https://youtube.com/@vulfpeck`', { parse_mode: 'Markdown' })
+          return
+        }
+        const { channelId, name } = resolved
+        addChannel({ channelId, name, market: 'US', genre: 'funk' })
+        await bot.sendMessage(msg.chat.id,
+          `✅ Đã thêm kênh *${name}*\nChannel ID: \`${channelId}\`\n\nBot sẽ crawl kênh này lúc 07:00 và 18:00 hàng ngày.`,
+          { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📺 Xem danh sách', callback_data: 'menu_channels_manage' }]] } }
+        )
+      } catch (err) {
+        await bot.sendMessage(msg.chat.id, `❌ Lỗi: ${err instanceof Error ? err.message : String(err)}`)
       }
       return
     }
