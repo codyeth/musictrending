@@ -171,10 +171,9 @@ function formatTrend(trend: {
   const emoji = urgencyEmoji(trend.urgency)
   const label = trend.urgency ?? 'NEW'
   const raw = safeJSON(trend.rawData)
-  const typeLabel = trend.type === 'IDEA' ? '💡 IDEA' : '🎵 REMIX'
 
   const lines = [
-    `${typeLabel}  ${emoji} *${label}* — Score: *${trend.totalScore}/100*`,
+    `${emoji} *${label}* — Score: *${trend.totalScore}/100*`,
     `━━━━━━━━━━━━━━━`,
     `🎵 ${trend.title} — ${trend.artist}`,
     `📡 ${trend.source} | ${trend.market ?? 'N/A'}`,
@@ -189,6 +188,9 @@ function formatTrend(trend: {
   if (raw.leadTimeWeeks !== undefined) {
     lines.push(`⏱ Lead time: ${raw.leadTimeWeeks} tuần`)
   }
+
+  const typeLabel = trend.type === 'IDEA' ? '💡 IDEA — Gợi ý hướng sáng tác' : '🎵 REMIX — Có thể làm lại bài này'
+  lines.push(`🏷 Đề xuất: *${typeLabel}*`)
 
   lines.push(``)
   lines.push(`💬 _${trend.vibe ?? 'Đang phân tích...'}_`)
