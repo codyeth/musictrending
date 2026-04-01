@@ -7,6 +7,7 @@ import { saveSubscription, loadSubscriptions } from '../crawlers/subscriptions.j
 import { loadChannels, removeChannel, addChannel, resolveChannelUrl } from '../crawlers/youtube-channels.js'
 import { crawlAll } from '../crawlers/all.js'
 import { classifyTrend } from '../utils/classify.js'
+import { lookupReleaseDate, isRecent, parseReleaseDate } from '../utils/spotify-lookup.js'
 import fs from 'fs'
 import path from 'path'
 
@@ -1131,9 +1132,25 @@ function registerMessageHandler(): void {
 
     if (mode === 'add_trend') {
       userModes.delete(userId)
-      const parts = msg.text.split(' - ')
-      const title = parts[0]?.trim() ?? msg.text
+      const raw = msg.text.trim()
+      const forced = raw.toLowerCase().startsWith('force:')
+      const input = forced ? raw.slice(6).trim() : raw
+      const parts = input.split(' - ')
+      const title = parts[0]?.trim() ?? input
       const artist = parts[1]?.trim() ?? 'Manual'
+
+      await bot.sendMessage(msg.chat.id, `⏳ Đang kiểm tra ngày phát hành...`, { parse_mode: 'Markdown' })
+
+      const releaseDate = await lookupReleaseDate(title, artist)
+
+      if (!forced && releaseDate && !isRecent(releaseDate, 30)) {
+        const relYear = parseReleaseDate(releaseDate).getFullYear()
+        await bot.sendMessage(msg.chat.id,
+          `⚠️ *${title}* phát hành từ *${relYear}* — quá 1 tháng, không phù hợp để theo dõi trend mới.\n\nNếu vẫn muốn thêm, gõ lại: \`force: Tên bài - Artist\``,
+          { parse_mode: 'Markdown' }
+        )
+        return
+      }
 
       await prisma.trend.create({
         data: {
@@ -1143,11 +1160,13 @@ function registerMessageHandler(): void {
           artist,
           market: 'US',
           type: classifyTrend('MANUAL', 'US'),
+          rawData: JSON.stringify({ releaseDate: releaseDate ?? null }),
         },
       })
 
+      const relInfo = releaseDate ? ` (phát hành ${releaseDate})` : ''
       await bot.sendMessage(msg.chat.id,
-        `✅ Đã thêm: *${title}* — ${artist}\n\nTrend đã vào hàng chờ chấm điểm.`,
+        `✅ Đã thêm: *${title}* — ${artist}${relInfo}\n\nTrend đã vào hàng chờ chấm điểm.`,
         {
           parse_mode: 'Markdown',
           reply_markup: kbBack('menu_main'),

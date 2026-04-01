@@ -2,9 +2,8 @@ import axios from 'axios'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
 import { classifyTrend } from '../utils/classify.js'
+import { isRecent } from '../utils/spotify-lookup.js'
 
-// Shazam charts via iTunes RSS API (Apple acquired Shazam 2018, data overlap)
-// Also pulls from Shazam's own endpoint where available
 const CHARTS: Array<{ market: string; countryCode: string }> = [
   { market: 'US', countryCode: 'us' },
   { market: 'JP', countryCode: 'jp' },
@@ -16,6 +15,7 @@ const CHARTS: Array<{ market: string; countryCode: string }> = [
 export async function crawlShazam() {
   logger.info('shazam', 'Starting Shazam crawl via iTunes RSS...')
   let saved = 0
+  let skipped = 0
   const today = new Date().toISOString().split('T')[0]
 
   for (const chart of CHARTS) {
@@ -34,6 +34,15 @@ export async function crawlShazam() {
         const artist = entry?.['im:artist']?.label?.trim()
         if (!title || !artist) continue
 
+        // iTunes RSS includes im:releaseDate
+        const releaseDateRaw: string = entry?.['im:releaseDate']?.label ?? ''
+        const releaseDate = releaseDateRaw ? releaseDateRaw.split('T')[0] : null
+
+        if (releaseDate && !isRecent(releaseDate, 30)) {
+          skipped++
+          continue
+        }
+
         const externalId = `shazam_${chart.market}_${rank + 1}_${today}`
         const existing = await prisma.trend.findUnique({ where: { externalId } })
         if (existing) continue
@@ -46,7 +55,7 @@ export async function crawlShazam() {
             artist,
             market: chart.market,
             type: classifyTrend('SHAZAM', chart.market),
-            rawData: JSON.stringify({ rank: rank + 1, date: today }),
+            rawData: JSON.stringify({ rank: rank + 1, date: today, releaseDate }),
           },
         })
         saved++
@@ -58,5 +67,5 @@ export async function crawlShazam() {
     }
   }
 
-  logger.info('shazam', `Crawl complete. Total new: ${saved}`)
+  logger.info('shazam', `Crawl complete. New: ${saved}, skipped old: ${skipped}`)
 }

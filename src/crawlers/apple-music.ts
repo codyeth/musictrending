@@ -1,8 +1,8 @@
 import axios from 'axios'
-import * as cheerio from 'cheerio'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
 import { classifyTrend } from '../utils/classify.js'
+import { isRecent } from '../utils/spotify-lookup.js'
 
 // Apple Music RSS charts — no API key needed
 const CHARTS: Array<{ market: string; url: string }> = [
@@ -16,6 +16,7 @@ const CHARTS: Array<{ market: string; url: string }> = [
 export async function crawlAppleMusic() {
   logger.info('apple-music', 'Starting Apple Music crawl...')
   let saved = 0
+  let skipped = 0
   const today = new Date().toISOString().split('T')[0]
 
   for (const chart of CHARTS) {
@@ -25,11 +26,17 @@ export async function crawlAppleMusic() {
         timeout: 15000,
       })
 
-      const results: Array<{ name: string; artistName: string; id: string }> = res.data?.feed?.results ?? []
+      const results: Array<{ name: string; artistName: string; id: string; releaseDate?: string }> = res.data?.feed?.results ?? []
 
       for (let rank = 0; rank < results.length; rank++) {
         const item = results[rank]
         if (!item?.name || !item?.artistName) continue
+
+        // Filter by release date if available
+        if (item.releaseDate && !isRecent(item.releaseDate, 30)) {
+          skipped++
+          continue
+        }
 
         const externalId = `apple_${chart.market}_${rank + 1}_${today}`
         const existing = await prisma.trend.findUnique({ where: { externalId } })
@@ -43,7 +50,7 @@ export async function crawlAppleMusic() {
             artist: item.artistName,
             market: chart.market,
             type: classifyTrend('APPLE_MUSIC', chart.market),
-            rawData: JSON.stringify({ rank: rank + 1, appleId: item.id, date: today }),
+            rawData: JSON.stringify({ rank: rank + 1, appleId: item.id, date: today, releaseDate: item.releaseDate ?? null }),
           },
         })
         saved++
@@ -55,5 +62,5 @@ export async function crawlAppleMusic() {
     }
   }
 
-  logger.info('apple-music', `Crawl complete. Total new: ${saved}`)
+  logger.info('apple-music', `Crawl complete. New: ${saved}, skipped old: ${skipped}`)
 }
