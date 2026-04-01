@@ -12,7 +12,7 @@ const SYSTEM_PROMPT_REMIX = `Bạn là chuyên gia phân tích trend nhạc cho 
 Các trend dưới đây là loại REMIX — bài nhạc cụ thể đang viral, team có thể remake/cover ngay.
 Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Bài mới ra trong 14 ngày = điểm cao nhất. Quá 60 ngày = 0đ. BÀI RA TRÊN 3 THÁNG = tổng điểm tối đa là 30/100.
+1. leadTime (25đ): Bài ra trong 14 ngày = 25đ (tối đa). Ra 15-30 ngày = 10đ. Ra TRÊN 1 THÁNG = 0đ và tổng điểm tối đa chỉ là 20/100.
 2. revenuePotential (25đ): CPM thị trường - US/BR/KR = cao, ID = trung bình.
 3. velocity (20đ): Tốc độ tăng views/streams/rank trong 7 ngày gần nhất.
 4. crossPlatform (15đ): Viral chéo Spotify + YouTube + TikTok cùng lúc = điểm cao.
@@ -39,7 +39,7 @@ const SYSTEM_PROMPT_IDEA = `Bạn là chuyên gia phân tích trend nhạc cho t
 Các trend dưới đây là loại IDEA — tín hiệu hành vi người dùng, hướng làm nhạc, không nhất thiết là bài cụ thể.
 Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Trend đang nổi trong 14 ngày = điểm cao. Đã qua đỉnh = thấp.
+1. leadTime (25đ): Trend bùng nổ trong 14 ngày = 25đ. Đang nổi 15-30 ngày = 10đ. Đã qua 1 tháng = 0đ và tổng điểm tối đa chỉ là 20/100.
 2. revenuePotential (25đ): Nếu làm theo hướng này, tiềm năng CPM thị trường đích là bao nhiêu.
 3. velocity (20đ): Tốc độ tăng search volume / engagement trong 7 ngày gần nhất.
 4. crossPlatform (15đ): Hướng này đang được quan tâm trên nhiều nền tảng không.
@@ -113,10 +113,11 @@ function getUrgency(score: number, createdAt: Date, rawData?: string | null): st
   const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
   if (createdAt < sixMonthsAgo) return null
 
-  // Check release date: skip if song/trend is older than 3 months
+  // Check release date: skip if song/trend is older than 1 month
+  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
-  const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
   const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth() + 1 // 1-12
 
   if (rawData) {
     try {
@@ -124,12 +125,11 @@ function getUrgency(score: number, createdAt: Date, rawData?: string | null): st
       // Check exact release date (Spotify)
       if (raw.releaseDate) {
         const released = new Date(raw.releaseDate)
-        if (released < threeMonthsAgo) return null
+        if (released < oneMonthAgo) return null
       }
-      // Check AI-estimated release year
+      // Check AI-estimated release year — block anything before this year
       if (raw.releaseYear && typeof raw.releaseYear === 'number') {
-        if (raw.releaseYear < currentYear - 1) return null       // older than last year → skip
-        if (raw.releaseYear === currentYear - 1 && score < 80) return null // last year only if very high score
+        if (raw.releaseYear < currentYear) return null
       }
     } catch {}
   }

@@ -7,11 +7,7 @@ import { classifyTrend } from '../utils/classify.js'
 const MARKETS = ['JP', 'US', 'KR', 'BR', 'ID'] as const
 type Market = typeof MARKETS[number]
 
-const THREE_MONTHS_AGO = () => {
-  const d = new Date()
-  d.setMonth(d.getMonth() - 3)
-  return d
-}
+const ONE_MONTH_AGO = () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
 async function getAccessToken(): Promise<string> {
   const credentials = Buffer.from(
@@ -104,7 +100,7 @@ export async function crawlSpotify() {
 
   let saved = 0
   let skippedOld = 0
-  const cutoff = THREE_MONTHS_AGO()
+  const cutoff = ONE_MONTH_AGO()
 
   for (const market of MARKETS) {
     for (const type of ['viral', 'top'] as const) {
@@ -119,7 +115,7 @@ export async function crawlSpotify() {
         for (const track of tracks) {
           const releaseDate = releaseDates[track.trackId]
 
-          // Skip songs released more than 3 months ago
+          // Skip songs released more than 1 month ago
           if (releaseDate) {
             const released = new Date(releaseDate)
             if (released < cutoff) {
