@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrendRadar — Music Trend Tool</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f0f0f; color: #e5e5e5; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; }
+    .badge-rush { background: #7f1d1d; color: #fca5a5; }
+    .badge-watch { background: #78350f; color: #fcd34d; }
+    .badge-new { background: #1e3a5f; color: #93c5fd; }
+  </style>
+</head>
+<body class="min-h-screen p-6">
+  <div class="max-w-6xl mx-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-white">🎵 TrendRadar</h1>
+      <div id="stats" class="flex gap-4 text-sm text-gray-400"></div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card rounded-lg p-4 mb-6 flex flex-wrap gap-4 items-center">
+      <select id="filter-source" class="bg-[#2a2a2a] text-white px-3 py-2 rounded text-sm">
+        <option value="ALL">Tất cả nguồn</option>
+        <option value="SPOTIFY">Spotify</option>
+        <option value="REDDIT">Reddit</option>
+        <option value="NICONICO">Niconico</option>
+        <option value="MELON">Melon</option>
+        <option value="GOOGLE_TRENDS">Google Trends</option>
+        <option value="MANUAL">Manual</option>
+      </select>
+      <select id="filter-urgency" class="bg-[#2a2a2a] text-white px-3 py-2 rounded text-sm">
+        <option value="ALL">Tất cả mức</option>
+        <option value="RUSH">🔴 RUSH</option>
+        <option value="WATCH">🟠 WATCH</option>
+      </select>
+      <select id="filter-decided" class="bg-[#2a2a2a] text-white px-3 py-2 rounded text-sm">
+        <option value="pending">Chưa duyệt</option>
+        <option value="decided">Đã duyệt</option>
+        <option value="">Tất cả</option>
+      </select>
+      <div class="flex items-center gap-2 text-sm text-gray-400">
+        <span>Score ≥</span>
+        <input id="filter-score" type="number" value="0" min="0" max="100"
+          class="bg-[#2a2a2a] text-white w-16 px-2 py-2 rounded text-sm">
+      </div>
+      <button onclick="loadTrends()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-sm">
+        Lọc
+      </button>
+    </div>
+
+    <!-- Trends List -->
+    <div id="trends" class="space-y-3"></div>
+  </div>
+
+  <script>
+    async function loadStats() {
+      const res = await fetch('/api/stats')
+      const data = await res.json()
+      document.getElementById('stats').innerHTML = `
+        <span>Hôm nay: <b class="text-white">${data.total}</b></span>
+        <span>Chờ duyệt: <b class="text-yellow-400">${data.pending}</b></span>
+        <span>Đã duyệt: <b class="text-green-400">${data.approved}</b></span>
+        <span>🔴 RUSH: <b class="text-red-400">${data.rush}</b></span>
+      `
+    }
+
+    async function loadTrends() {
+      const source = document.getElementById('filter-source').value
+      const urgency = document.getElementById('filter-urgency').value
+      const decided = document.getElementById('filter-decided').value
+      const minScore = document.getElementById('filter-score').value
+
+      const params = new URLSearchParams({ source, urgency, decided, minScore })
+      const res = await fetch(`/api/trends?${params}`)
+      const trends = await res.json()
+
+      const container = document.getElementById('trends')
+      if (trends.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-12">Không có trend nào.</p>'
+        return
+      }
+
+      container.innerHTML = trends.map(t => {
+        const badgeClass = t.urgency === 'RUSH' ? 'badge-rush' : t.urgency === 'WATCH' ? 'badge-watch' : 'badge-new'
+        const badgeLabel = t.urgency ?? 'NEW'
+        const scores = t.scores ? JSON.parse(t.scores) : {}
+        const decided = t.decision ? `<span class="text-xs text-gray-500">→ ${t.decision.action}</span>` : ''
+        return `
+          <div class="card rounded-lg p-4">
+            <div class="flex items-start gap-4">
+              ${t.thumbnail ? `<img src="${t.thumbnail}" class="w-16 h-16 rounded object-cover flex-shrink-0">` : '<div class="w-16 h-16 bg-[#2a2a2a] rounded flex-shrink-0 flex items-center justify-center text-2xl">🎵</div>'}
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                  <span class="font-semibold text-white truncate">${t.title}</span>
+                  <span class="text-gray-400 text-sm">— ${t.artist}</span>
+                  <span class="text-xs px-2 py-0.5 rounded ${badgeClass}">${badgeLabel}</span>
+                  <span class="text-xs bg-[#2a2a2a] text-gray-300 px-2 py-0.5 rounded">${t.source}</span>
+                  ${t.market ? `<span class="text-xs bg-[#2a2a2a] text-blue-300 px-2 py-0.5 rounded">${t.market}</span>` : ''}
+                  <span class="text-xs font-bold text-purple-400">${t.totalScore}/100</span>
+                  ${decided}
+                </div>
+                <p class="text-sm text-gray-400 mb-2">${t.vibe ?? ''}</p>
+                ${t.aiSuggest ? `<p class="text-xs text-gray-500 mb-3">💡 ${t.aiSuggest}</p>` : ''}
+                ${!t.decision ? `
+                  <div class="flex gap-2">
+                    <button onclick="decide(${t.id}, 'APPROVE', this)" class="text-xs bg-green-800 hover:bg-green-700 text-green-200 px-3 py-1 rounded">✅ Duyệt</button>
+                    <button onclick="decide(${t.id}, 'WATCH', this)" class="text-xs bg-yellow-800 hover:bg-yellow-700 text-yellow-200 px-3 py-1 rounded">⏳ Theo dõi</button>
+                    <button onclick="decide(${t.id}, 'REJECT', this)" class="text-xs bg-red-900 hover:bg-red-800 text-red-200 px-3 py-1 rounded">❌ Bỏ qua</button>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `
+      }).join('')
+    }
+
+    async function decide(trendId, action, btn) {
+      await fetch('/api/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trendId, action }),
+      })
+      btn.closest('.flex.gap-2').innerHTML = `<span class="text-xs text-gray-500">→ ${action}</span>`
+      loadStats()
+    }
+
+    loadStats()
+    loadTrends()
+    setInterval(loadStats, 30000)
+  </script>
+</body>
+</html>
