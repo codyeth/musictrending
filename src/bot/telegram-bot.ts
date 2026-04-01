@@ -222,4 +222,12 @@ function registerCommands() {
     await bot.sendMessage(msg.chat.id, '🔄 Đang crawl...')
     process.emit('crawlnow' as any)
   })
+
+  bot.onText(/\/logs/, async (msg) => {
+    if (!isAdmin(msg.from?.id ?? 0)) return
+    await bot.sendMessage(msg.chat.id,
+      '📋 Logs được ghi ra console/PM2.\n\nDùng lệnh: `pm2 logs music-tool --lines 50`',
+      { parse_mode: 'Markdown' }
+    )
+  })
 }
