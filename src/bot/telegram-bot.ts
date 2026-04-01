@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js'
 import { analyzeLink } from '../processor/analyzer.js'
 import { saveSubscription, loadSubscriptions } from '../crawlers/subscriptions.js'
 import { loadChannels, removeChannel, addChannel, resolveChannelUrl } from '../crawlers/youtube-channels.js'
+import { crawlAll } from '../crawlers/all.js'
 import fs from 'fs'
 import path from 'path'
 
@@ -123,47 +124,30 @@ function txtMainMenu(role: Role): string {
 }
 
 function txtHelp(): string {
-  return `❓ *Hướng dẫn sử dụng*
+  return `❓ *Hướng dẫn nhanh*
 ━━━━━━━━━━━━━━━
-📊 *TRENDS*
+🔔 *Alerts tự động*
+Bot tự tìm trend mới mỗi ngày và gửi thông báo khi điểm AI ≥ ${config.scoring.alertThreshold}/100.
+Mỗi alert có nút *DUYỆT / THEO DÕI / BỎ QUA* để team ra quyết định.
 
-🔥 *Top Trends*
-Hiện top 5 trends chưa duyệt, sắp xếp theo điểm.
-Member/Admin có thể duyệt ngay từ inline button.
+🔥 *Top Trends* — \`/top\`
+Xem top 5 trend điểm cao nhất chưa duyệt.
 
-🔗 *Theo dõi link* _(Member/Admin)_
-Gửi link YouTube hoặc NicoNico → bot phân tích bài đó và gợi ý 5 bài tương tự đang trending.
-Sau khi phân tích, có thể subscribe artist/nguồn để bot tự crawl định kỳ.
+🔄 *Crawl Ngay* — \`/crawl\`
+Kéo data mới ngay lập tức từ tất cả nguồn.
+Bot báo lại danh sách bài/trend mới tìm được.
 
-➕ *Thêm Trend* _(Member/Admin)_
-Thêm trend thủ công vào hệ thống.
-Bot sẽ yêu cầu nhập theo định dạng: \`Tên bài - Artist\`
-Ví dụ: \`APT. - ROSE\`
+🔗 *Theo dõi link* — \`/link\`
+Gửi link YouTube/NicoNico → AI phân tích phong cách, gợi ý 5 trend tương tự đang hot.
 
-🔄 *Crawl Ngay* _(Member/Admin)_
-Chạy ngay 1 lần crawl tất cả nguồn dữ liệu.
+➕ *Thêm thủ công* — \`/add\`
+Tự thêm bài vào hệ thống. Nhập theo dạng: \`Tên bài - Artist\`
+
+📤 *Export CSV* — \`/export\`
+Xuất danh sách bài đã *DUYỆT* ra file CSV.
 ━━━━━━━━━━━━━━━
-⚙️ *QUẢN LÝ* _(Admin)_
-
-📈 *Thống kê*
-Xem trạng thái pipeline: chờ score, đã score, đã duyệt.
-
-📤 *Export CSV*
-Xuất file CSV tất cả bài đã được duyệt.
-
-📋 *Logs*
-Hướng dẫn xem logs hệ thống qua PM2.
-━━━━━━━━━━━━━━━
-👥 *QUẢN LÝ USER* _(Admin)_
-
-\`/adduser <id> member\` — Thêm user xem + duyệt
-\`/adduser <id> viewer\` — Thêm user chỉ xem
-\`/removeuser <id>\` — Xóa user
-━━━━━━━━━━━━━━━
-🔔 *ALERTS TỰ ĐỘNG*
-Khi trend mới đạt score >= ${config.scoring.alertThreshold}, bot tự gửi thông báo.
-Member/Admin nhận nút APPROVE/WATCH/REJECT.
-Viewer nhận thông báo nhưng không có nút duyệt.`
+📡 *Nguồn dữ liệu*
+Spotify · Apple Music · Shazam · Billboard · Melon (KR) · Niconico (JP) · Google Trends · Reddit`
 }
 
 function urgencyEmoji(urgency: string | null): string {
@@ -236,6 +220,37 @@ function formatTrend(trend: {
   }
 
   return lines.join('\n')
+}
+
+// ─── Crawl result helper ──────────────────────────────────────────
+
+const SUGGEST_SOURCES = [
+  'TikTok Trending (cần setup)',
+  'YouTube Music Charts',
+  'SoundCloud Trending',
+  'Beatport Top 100',
+]
+
+async function sendCrawlResult(chatId: number, newTrends: { id: number; title: string; artist: string; source: string; market: string | null; type: string }[]): Promise<void> {
+  if (newTrends.length === 0) {
+    const suggest = SUGGEST_SOURCES[Math.floor(Math.random() * SUGGEST_SOURCES.length)]
+    await bot.sendMessage(
+      chatId,
+      `✅ *Crawl xong — không có bài/trend mới*\n\nTất cả nguồn đã được cập nhật rồi.\n💡 Muốn tìm thêm? Gợi ý: thêm nguồn *${suggest}* vào hệ thống.`,
+      { parse_mode: 'Markdown' }
+    )
+    return
+  }
+
+  const lines = [`✅ *Crawl xong — ${newTrends.length} bài/trend mới:*\n`]
+  for (const t of newTrends.slice(0, 20)) {
+    const typeIcon = t.type === 'IDEA' ? '💡' : '🎵'
+    lines.push(`${typeIcon} *${t.title}* — ${t.artist}\n   📡 ${t.source} | ${t.market ?? 'N/A'}`)
+  }
+  if (newTrends.length > 20) {
+    lines.push(`\n_...và ${newTrends.length - 20} bài khác. Xem đầy đủ trên dashboard._`)
+  }
+  await bot.sendMessage(chatId, lines.join('\n'), { parse_mode: 'Markdown' })
 }
 
 // ─── Bot instance ─────────────────────────────────────────────────
@@ -540,10 +555,11 @@ function registerCallbacks(): void {
     if (data === 'cmd_crawl') {
       if (!canDecide(role)) return
       await bot.editMessageText(
-        `⏳ *Đang crawl tất cả nguồn...*\nVui lòng chờ ~30 giây`,
+        `⏳ *Đang crawl tất cả nguồn...*\nSpotify · Apple Music · Shazam · Billboard · Melon · Niconico · Google Trends`,
         { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
       )
-      process.emit('crawlnow' as never)
+      const newTrends = await crawlAll()
+      await sendCrawlResult(chatId, newTrends)
       return
     }
 
@@ -737,8 +753,9 @@ function registerCommands(): void {
     const role = getRole(userId)
     if (!role) { await denyAccess(msg.chat.id, userId); return }
     if (!canDecide(role)) { await bot.sendMessage(msg.chat.id, '⛔ Bạn không có quyền dùng tính năng này.'); return }
-    await bot.sendMessage(msg.chat.id, '⏳ *Đang crawl tất cả nguồn...*\nVui lòng chờ ~30 giây', { parse_mode: 'Markdown' })
-    process.emit('crawlnow' as never)
+    await bot.sendMessage(msg.chat.id, '⏳ *Đang crawl tất cả nguồn...*\nSpotify · Apple Music · Shazam · Billboard · Melon · Niconico · Google Trends', { parse_mode: 'Markdown' })
+    const newTrends = await crawlAll()
+    await sendCrawlResult(msg.chat.id, newTrends)
   })
 
   bot.onText(/\/status/, async (msg) => {

@@ -1,13 +1,5 @@
 import cron from 'node-cron'
-import { crawlSpotify } from './crawlers/spotify.js'
-import { crawlReddit } from './crawlers/reddit.js'
-import { crawlNiconico } from './crawlers/niconico.js'
-import { crawlMelon } from './crawlers/melon.js'
-import { crawlGoogleTrends } from './crawlers/google-trends.js'
-import { crawlAppleMusic } from './crawlers/apple-music.js'
-import { crawlShazam } from './crawlers/shazam.js'
-import { crawlBillboard } from './crawlers/billboard.js'
-import { crawlSubscriptions } from './crawlers/subscriptions.js'
+import { crawlAll } from './crawlers/all.js'
 import { crawlYoutubeChannels, initDefaultChannels } from './crawlers/youtube-channels.js'
 import { runScorer } from './processor/scorer.js'
 import { pushAlert } from './bot/telegram-bot.js'
@@ -16,7 +8,6 @@ import { logger } from './utils/logger.js'
 import { config } from './config.js'
 
 async function checkAndAlert() {
-  // Only alert trends that have NOT been alerted yet — fixes duplicate spam
   const newHighScore = await prisma.trend.findMany({
     where: {
       status: 'COMPLETED',
@@ -29,7 +20,6 @@ async function checkAndAlert() {
   })
 
   for (const trend of newHighScore) {
-    // Mark as alerted BEFORE sending to prevent retry on failure spam
     await prisma.trend.update({ where: { id: trend.id }, data: { alerted: true } })
     await pushAlert(trend)
     await new Promise(r => setTimeout(r, 1000))
@@ -38,41 +28,17 @@ async function checkAndAlert() {
 
 export function startScheduler() {
   initDefaultChannels()
-  // 07:00 — Spotify + Melon + Apple Music + Shazam + Billboard
+
+  // 07:00 — Full crawl
   cron.schedule('0 7 * * *', async () => {
-    logger.info('scheduler', 'Running 07:00 job: Spotify + Melon + Apple Music + Shazam + Billboard')
-    await crawlSpotify()
-    await crawlMelon()
-    await crawlAppleMusic()
-    await crawlShazam()
-    await crawlBillboard()
-  })
-
-  // 08:00 — Google Trends
-  cron.schedule('0 8 * * *', async () => {
-    logger.info('scheduler', 'Running 08:00 job: Google Trends')
-    await crawlGoogleTrends()
-  })
-
-  // 09:00 — Reddit + Niconico + Subscriptions + YouTube Channels
-  cron.schedule('0 9 * * *', async () => {
-    logger.info('scheduler', 'Running 09:00 job: Reddit + Niconico + Subscriptions + YouTube')
-    await crawlReddit()
-    await crawlNiconico()
-    await crawlSubscriptions()
-    await crawlYoutubeChannels()
+    logger.info('scheduler', 'Running 07:00 full crawl')
+    await crawlAll()
   })
 
   // 18:00 — YouTube Channels second run
   cron.schedule('0 18 * * *', async () => {
-    logger.info('scheduler', 'Running 18:00 job: YouTube Channels')
+    logger.info('scheduler', 'Running 18:00 YouTube Channels')
     await crawlYoutubeChannels()
-  })
-
-  // 20:00 — Google Trends second run
-  cron.schedule('0 20 * * *', async () => {
-    logger.info('scheduler', 'Running 20:00 job: Google Trends')
-    await crawlGoogleTrends()
   })
 
   // Every 15 minutes — AI Scorer + Alert check

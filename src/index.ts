@@ -5,11 +5,7 @@ import { logger } from './utils/logger.js'
 import { initBot } from './bot/telegram-bot.js'
 import { startScheduler } from './scheduler.js'
 import { startDashboard } from './dashboard/server.js'
-import { crawlSpotify } from './crawlers/spotify.js'
-import { crawlReddit } from './crawlers/reddit.js'
-import { crawlNiconico } from './crawlers/niconico.js'
-import { crawlMelon } from './crawlers/melon.js'
-import { crawlGoogleTrends } from './crawlers/google-trends.js'
+import { crawlAll } from './crawlers/all.js'
 import { runScorer } from './processor/scorer.js'
 
 async function main() {
@@ -20,32 +16,15 @@ async function main() {
 
   initBot()
 
-  // Handle /crawlnow signal from bot
-  process.on('crawlnow' as any, async () => {
-    logger.info('main', 'Manual crawl triggered')
-    await Promise.allSettled([
-      crawlSpotify(),
-      crawlReddit(),
-      crawlNiconico(),
-      crawlMelon(),
-      crawlGoogleTrends(),
-    ])
-    await runScorer()
-  })
-
   startDashboard()
   startScheduler()
 
   logger.info('main', `Dashboard: http://localhost:${config.dashboard.port}`)
   logger.info('main', `Features: OpenRouter=${config.hasOpenRouter} | Reddit=${config.hasReddit} | Spotify=${config.hasSpotify}`)
 
-  // Initial crawl on startup (non-Spotify sources that don't need credentials)
+  // Initial crawl on startup
   logger.info('main', 'Running initial crawl...')
-  await Promise.allSettled([
-    crawlReddit(),
-    crawlNiconico(),
-    crawlGoogleTrends(),
-  ])
+  await crawlAll()
   await runScorer()
 
   process.on('SIGINT', async () => {
