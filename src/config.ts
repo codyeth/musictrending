@@ -10,6 +10,11 @@ function optional(key: string, fallback = ''): string {
   return process.env[key] ?? fallback
 }
 
+function optionalInt(key: string, fallback: number): number {
+  const val = parseInt(process.env[key] ?? '')
+  return isNaN(val) ? fallback : val
+}
+
 export const config = {
   telegram: {
     botToken: required('TELEGRAM_BOT_TOKEN'),
@@ -30,15 +35,17 @@ export const config = {
     clientSecret: optional('SPOTIFY_CLIENT_SECRET'),
   },
   scoring: {
-    alertThreshold: parseInt(optional('ALERT_SCORE_THRESHOLD', '70')),
-    rushThreshold: parseInt(optional('RUSH_THRESHOLD', '80')),
-    watchThreshold: parseInt(optional('WATCH_THRESHOLD', '60')),
+    alertThreshold: optionalInt('ALERT_SCORE_THRESHOLD', 70),
+    rushThreshold: optionalInt('RUSH_THRESHOLD', 80),
+    watchThreshold: optionalInt('WATCH_THRESHOLD', 60),
   },
   dashboard: {
-    port: parseInt(optional('DASHBOARD_PORT', '3000')),
+    port: optionalInt('DASHBOARD_PORT', 3000),
   },
   // Feature flags
   hasOpenRouter: !!optional('OPENROUTER_API_KEY'),
   hasReddit: !!(optional('REDDIT_CLIENT_ID') && optional('REDDIT_CLIENT_SECRET')),
   hasSpotify: !!(optional('SPOTIFY_CLIENT_ID') && optional('SPOTIFY_CLIENT_SECRET')),
 }
+
+export type Config = typeof config

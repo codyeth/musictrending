@@ -1,6 +1,15 @@
 type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 
+const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info'
+const LEVEL_PRIORITY: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 }
+
+function shouldLog(level: LogLevel): boolean {
+  const minPriority = LEVEL_PRIORITY[LOG_LEVEL as LogLevel] ?? 1
+  return LEVEL_PRIORITY[level] >= minPriority
+}
+
 function log(level: LogLevel, module: string, message: string) {
+  if (!shouldLog(level)) return
   const timestamp = new Date().toISOString()
   const prefix = `[${timestamp}] [${level.toUpperCase()}] [${module}]`
   if (level === 'error') {
