@@ -502,9 +502,22 @@ function registerCallbacks(): void {
     if (data === 'cmd_link') {
       if (!canDecide(role)) return
       userModes.set(userId, 'analyze_link')
+      const channels = loadChannels()
+      const channelButtons: TelegramBot.InlineKeyboardButton[][] = channels.slice(0, 8).map(ch => ([{
+        text: `📺 ${ch.name}`,
+        url: `https://www.youtube.com/channel/${ch.channelId}`,
+      }]))
       await bot.editMessageText(
         `🔗 *Theo dõi link*\n\nGửi link YouTube hoặc NicoNico của bài nhạc bạn muốn phân tích.\n\n_Gõ /cancel để hủy_`,
-        { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+        {
+          chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              ...channelButtons,
+              [{ text: '🔙 Quay lại', callback_data: 'menu_trends' }],
+            ],
+          },
+        }
       )
       return
     }
@@ -733,9 +746,17 @@ function registerCommands(): void {
     if (!role) { await denyAccess(msg.chat.id, userId); return }
     if (!canDecide(role)) { await bot.sendMessage(msg.chat.id, '⛔ Bạn không có quyền dùng tính năng này.'); return }
     userModes.set(userId, 'analyze_link')
+    const channels = loadChannels()
+    const channelButtons: TelegramBot.InlineKeyboardButton[][] = channels.slice(0, 8).map(ch => ([{
+      text: `📺 ${ch.name}`,
+      url: `https://www.youtube.com/channel/${ch.channelId}`,
+    }]))
     await bot.sendMessage(msg.chat.id,
       `🔗 *Theo dõi link*\n\nGửi link YouTube hoặc NicoNico của bài nhạc bạn muốn phân tích.\n\n_Gõ /cancel để hủy_`,
-      { parse_mode: 'Markdown' }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: channels.length > 0 ? { inline_keyboard: channelButtons } : undefined,
+      }
     )
   })
 
