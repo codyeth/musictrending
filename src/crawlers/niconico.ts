@@ -7,8 +7,10 @@ export async function crawlNiconico() {
   let saved = 0
 
   try {
+    // Only fetch songs published in the last 90 days
+    const after = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const res = await axios.get(
-      'https://vocadb.net/api/songs?sort=RatingScore&maxResults=20&fields=ThumbUrl,Artists',
+      `https://vocadb.net/api/songs?sort=RatingScore&maxResults=20&fields=ThumbUrl,Artists&afterDate=${after}`,
       { timeout: 10000 }
     )
 

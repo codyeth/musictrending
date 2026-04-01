@@ -4,6 +4,7 @@ import { crawlReddit } from './crawlers/reddit.js'
 import { crawlNiconico } from './crawlers/niconico.js'
 import { crawlMelon } from './crawlers/melon.js'
 import { crawlGoogleTrends } from './crawlers/google-trends.js'
+import { crawlSubscriptions } from './crawlers/subscriptions.js'
 import { runScorer } from './processor/scorer.js'
 import { pushAlert } from './bot/telegram-bot.js'
 import prisma from './db.js'
@@ -41,11 +42,12 @@ export function startScheduler() {
     await crawlGoogleTrends()
   })
 
-  // 09:00 — Reddit + Niconico
+  // 09:00 — Reddit + Niconico + Subscriptions
   cron.schedule('0 9 * * *', async () => {
-    logger.info('scheduler', 'Running 09:00 job: Reddit + Niconico')
+    logger.info('scheduler', 'Running 09:00 job: Reddit + Niconico + Subscriptions')
     await crawlReddit()
     await crawlNiconico()
+    await crawlSubscriptions()
   })
 
   // 20:00 — Google Trends second run

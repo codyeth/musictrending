@@ -3,6 +3,7 @@ dist/
 .env
 .env.local
 data/*.db
+data/users.json
+data/subscriptions.json
 *.log
 .DS_Store
-node_modules
