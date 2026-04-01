@@ -6,6 +6,7 @@ import { analyzeLink } from '../processor/analyzer.js'
 import { saveSubscription, loadSubscriptions } from '../crawlers/subscriptions.js'
 import { loadChannels, removeChannel, addChannel, resolveChannelUrl } from '../crawlers/youtube-channels.js'
 import { crawlAll } from '../crawlers/all.js'
+import { classifyTrend } from '../utils/classify.js'
 import fs from 'fs'
 import path from 'path'
 
@@ -995,6 +996,7 @@ function registerMessageHandler(): void {
           title,
           artist,
           market: 'US',
+          type: classifyTrend('MANUAL', 'US'),
         },
       })
 
