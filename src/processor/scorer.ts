@@ -12,7 +12,7 @@ const SYSTEM_PROMPT_REMIX = `Bạn là chuyên gia phân tích trend nhạc cho 
 Các trend dưới đây là loại REMIX — bài nhạc cụ thể đang viral, team có thể remake/cover ngay.
 Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Bài mới ra trong 14 ngày = điểm cao nhất. Quá 30 ngày = 0đ.
+1. leadTime (25đ): Bài mới ra trong 14 ngày = điểm cao nhất. Quá 60 ngày = 0đ. BÀI RA TRÊN 3 THÁNG = tổng điểm tối đa là 30/100.
 2. revenuePotential (25đ): CPM thị trường - US/BR/KR = cao, ID = trung bình.
 3. velocity (20đ): Tốc độ tăng views/streams/rank trong 7 ngày gần nhất.
 4. crossPlatform (15đ): Viral chéo Spotify + YouTube + TikTok cùng lúc = điểm cao.
@@ -27,12 +27,13 @@ Thông tin bổ sung cần trả về:
 - cpm: CPM YouTube theo market
 - marketProgression: thứ tự thị trường lan theo tuần
 - leadTimeWeeks: số tuần còn lại để làm kịp (0 = đã muộn)
+- releaseYear: năm phát hành thực tế của bài (ước tính nếu không biết chính xác)
 - tags: 3-5 tag mô tả
 
 QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT.
 
 Trả về mảng JSON, không có text khác:
-[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "tags": [...] }]`
+[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "releaseYear": <năm>, "tags": [...] }]`
 
 const SYSTEM_PROMPT_IDEA = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
 Các trend dưới đây là loại IDEA — tín hiệu hành vi người dùng, hướng làm nhạc, không nhất thiết là bài cụ thể.
@@ -53,12 +54,13 @@ Thông tin bổ sung cần trả về:
 - cpm: CPM YouTube theo market tiềm năng
 - marketProgression: hướng này đang lan từ đâu sang đâu
 - leadTimeWeeks: còn bao nhiêu tuần để khai thác
+- releaseYear: năm xuất hiện/bùng nổ của trend này (ước tính)
 - tags: 3-5 tag mô tả hướng
 
 QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT. aiSuggest phải rõ ràng đây là gợi ý hướng làm, không phải bài cụ thể.
 
 Trả về mảng JSON, không có text khác:
-[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "tags": [...] }]`
+[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "releaseYear": <năm>, "tags": [...] }]`
 
 interface ScoreResult {
   scores: Record<string, number>
@@ -72,6 +74,7 @@ interface ScoreResult {
   cpm?: Record<string, string>
   marketProgression?: string
   leadTimeWeeks?: number
+  releaseYear?: number
   tags?: string[]
 }
 
@@ -105,10 +108,32 @@ async function scoreBatch(trends: Array<{ id: number; title: string; artist: str
   return parsed
 }
 
-function getUrgency(score: number, createdAt: Date): string | null {
-  // Hard filter: trends older than 6 months never get alerted regardless of score
+function getUrgency(score: number, createdAt: Date, rawData?: string | null): string | null {
+  // Hard filter: crawl date older than 6 months
   const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
   if (createdAt < sixMonthsAgo) return null
+
+  // Check release date: skip if song/trend is older than 3 months
+  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  const currentYear = new Date().getFullYear()
+
+  if (rawData) {
+    try {
+      const raw = JSON.parse(rawData)
+      // Check exact release date (Spotify)
+      if (raw.releaseDate) {
+        const released = new Date(raw.releaseDate)
+        if (released < threeMonthsAgo) return null
+      }
+      // Check AI-estimated release year
+      if (raw.releaseYear && typeof raw.releaseYear === 'number') {
+        if (raw.releaseYear < currentYear - 1) return null       // older than last year → skip
+        if (raw.releaseYear === currentYear - 1 && score < 80) return null // last year only if very high score
+      }
+    } catch {}
+  }
+
   if (score >= config.scoring.rushThreshold) return 'RUSH'
   if (score >= config.scoring.watchThreshold) return 'WATCH'
   return null
@@ -162,7 +187,20 @@ export async function runScorer() {
         ? result.totalScore
         : 0
 
-      const urgency = getUrgency(totalScore, trend.createdAt)
+      const mergedRaw = JSON.stringify({
+        ...JSON.parse(trend.rawData ?? '{}'),
+        bpm: result.bpm,
+        style: result.style,
+        refTracks: result.refTracks,
+        saturationByMarket: result.saturation,
+        cpm: result.cpm,
+        marketProgression: result.marketProgression,
+        leadTimeWeeks: result.leadTimeWeeks,
+        releaseYear: result.releaseYear,
+        tags: result.tags,
+      })
+
+      const urgency = getUrgency(totalScore, trend.createdAt, mergedRaw)
 
       await prisma.trend.update({
         where: { id: trend.id },
@@ -173,17 +211,7 @@ export async function runScorer() {
           vibe: result.vibe,
           aiSuggest: result.aiSuggest,
           scores: JSON.stringify(result.scores),
-          rawData: JSON.stringify({
-            ...JSON.parse(trend.rawData ?? '{}'),
-            bpm: result.bpm,
-            style: result.style,
-            refTracks: result.refTracks,
-            saturationByMarket: result.saturation,
-            cpm: result.cpm,
-            marketProgression: result.marketProgression,
-            leadTimeWeeks: result.leadTimeWeeks,
-            tags: result.tags,
-          }),
+          rawData: mergedRaw,
         },
       })
     }

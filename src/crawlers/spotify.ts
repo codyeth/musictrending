@@ -7,6 +7,12 @@ import { classifyTrend } from '../utils/classify.js'
 const MARKETS = ['JP', 'US', 'KR', 'BR', 'ID'] as const
 type Market = typeof MARKETS[number]
 
+const THREE_MONTHS_AGO = () => {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 3)
+  return d
+}
+
 async function getAccessToken(): Promise<string> {
   const credentials = Buffer.from(
     `${config.spotify.clientId}:${config.spotify.clientSecret}`
@@ -53,6 +59,33 @@ function parseCsv(csv: string): Array<{ rank: number; trackId: string; title: st
   }).filter(t => t.trackId)
 }
 
+// Batch fetch release dates for up to 50 tracks at once
+async function fetchReleaseDates(token: string, trackIds: string[]): Promise<Record<string, string>> {
+  const result: Record<string, string> = {}
+  const chunks = []
+  for (let i = 0; i < trackIds.length; i += 50) {
+    chunks.push(trackIds.slice(i, i + 50))
+  }
+  for (const chunk of chunks) {
+    try {
+      const res = await axios.get('https://api.spotify.com/v1/tracks', {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { ids: chunk.join(',') },
+        timeout: 10000,
+      })
+      for (const track of res.data.tracks ?? []) {
+        if (track?.id && track?.album?.release_date) {
+          result[track.id] = track.album.release_date
+        }
+      }
+    } catch {
+      // non-critical, continue without release dates for this chunk
+    }
+    await new Promise(r => setTimeout(r, 300))
+  }
+  return result
+}
+
 export async function crawlSpotify() {
   if (!config.hasSpotify) {
     logger.warn('spotify', 'Spotify credentials not set, skipping')
@@ -70,14 +103,31 @@ export async function crawlSpotify() {
   }
 
   let saved = 0
+  let skippedOld = 0
+  const cutoff = THREE_MONTHS_AGO()
 
   for (const market of MARKETS) {
     for (const type of ['viral', 'top'] as const) {
       try {
         const csv = await fetchChart(token, market, type)
-        const tracks = parseCsv(csv)
+        const tracks = parseCsv(csv).slice(0, 20)
 
-        for (const track of tracks.slice(0, 20)) {
+        // Batch fetch release dates
+        const trackIds = tracks.map(t => t.trackId).filter(Boolean)
+        const releaseDates = await fetchReleaseDates(token, trackIds)
+
+        for (const track of tracks) {
+          const releaseDate = releaseDates[track.trackId]
+
+          // Skip songs released more than 3 months ago
+          if (releaseDate) {
+            const released = new Date(releaseDate)
+            if (released < cutoff) {
+              skippedOld++
+              continue
+            }
+          }
+
           const externalId = `spotify_${type}_${market}_${track.trackId}`
           const existing = await prisma.trend.findUnique({ where: { externalId } })
           if (existing) continue
@@ -91,7 +141,11 @@ export async function crawlSpotify() {
               url: track.url,
               market,
               type: classifyTrend('SPOTIFY', market),
-              rawData: JSON.stringify({ rank: track.rank, chartType: type }),
+              rawData: JSON.stringify({
+                rank: track.rank,
+                chartType: type,
+                releaseDate: releaseDate ?? null,
+              }),
             },
           })
           saved++
@@ -101,10 +155,10 @@ export async function crawlSpotify() {
       } catch (err) {
         logger.warn('spotify', `Failed ${type}-${market}: ${err instanceof Error ? err.message : String(err)}`)
       } finally {
-        await new Promise(r => setTimeout(r, 500)) // rate limit courtesy
+        await new Promise(r => setTimeout(r, 500))
       }
     }
   }
 
-  logger.info('spotify', `Crawl complete. Total new: ${saved}`)
+  logger.info('spotify', `Crawl complete. New: ${saved}, skipped old: ${skippedOld}`)
 }
