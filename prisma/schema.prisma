@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TrendSource {
+  SPOTIFY
+  REDDIT
+  NICONICO
+  MELON
+  GOOGLE_TRENDS
+  MANUAL
+}
+
+enum TrendStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DecisionAction {
+  APPROVE
+  WATCH
+  REJECT
+}
+
+model Trend {
+  id          Int         @id @default(autoincrement())
+  externalId  String      @unique
+  source      TrendSource
+  title       String
+  artist      String
+  url         String?
+  thumbnail   String?
+  market      String?
+  rawData     String?
+
+  totalScore  Int         @default(0)
+  urgency     String?
+  vibe        String?
+  aiSuggest   String?
+  scores      String?
+
+  status      TrendStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  decision    Decision?
+}
+
+model Decision {
+  id        Int            @id @default(autoincrement())
+  trendId   Int            @unique
+  trend     Trend          @relation(fields: [trendId], references: [id])
+  action    DecisionAction
+  note      String?
+  decidedAt DateTime       @default(now())
+}
