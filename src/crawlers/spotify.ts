@@ -64,7 +64,7 @@ export async function crawlSpotify() {
   try {
     token = await getAccessToken()
   } catch (err) {
-    logger.error('spotify', `Failed to get access token: ${err}`)
+    logger.error('spotify', `Failed to get access token: ${err instanceof Error ? err.message : String(err)}`)
     return
   }
 
@@ -96,9 +96,10 @@ export async function crawlSpotify() {
         }
 
         logger.info('spotify', `Saved from ${type}-50-${market}`)
-        await new Promise(r => setTimeout(r, 500)) // rate limit courtesy
       } catch (err) {
-        logger.warn('spotify', `Failed ${type}-${market}: ${err}`)
+        logger.warn('spotify', `Failed ${type}-${market}: ${err instanceof Error ? err.message : String(err)}`)
+      } finally {
+        await new Promise(r => setTimeout(r, 500)) // rate limit courtesy
       }
     }
   }
