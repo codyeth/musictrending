@@ -32,6 +32,9 @@ export const config = {
     // Default: free model — no credits needed, 20 req/min rate limit
     model: optional('OPENROUTER_MODEL', 'google/gemini-2.0-flash-exp:free'),
   },
+  youtube: {
+    apiKey: optional('YOUTUBE_API_KEY'),
+  },
   reddit: {
     clientId: optional('REDDIT_CLIENT_ID'),
     clientSecret: optional('REDDIT_CLIENT_SECRET'),
@@ -49,6 +52,7 @@ export const config = {
   // Feature flags
   hasOpenRouter: !!(optional('OPENROUTER_API_KEY') || optional('OPENROUTER_API_KEYS')),
   hasReddit: !!(optional('REDDIT_CLIENT_ID') && optional('REDDIT_CLIENT_SECRET')),
+  hasYoutube: !!optional('YOUTUBE_API_KEY'),
 }
 
 export type Config = typeof config

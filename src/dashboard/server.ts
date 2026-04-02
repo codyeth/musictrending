@@ -47,11 +47,18 @@ export function startDashboard() {
       if (decided === 'pending') where.decision = null
       if (decided === 'decided') where.NOT = { decision: null }
 
+      const { sortBy } = req.query
+      const orderBy =
+        sortBy === 'score'    ? { totalScore: 'desc' as const } :
+        sortBy === 'score_asc' ? { totalScore: 'asc' as const } :
+        sortBy === 'oldest'   ? { createdAt: 'asc' as const } :
+        { createdAt: 'desc' as const }  // default: newest first
+
       const trends = await prisma.trend.findMany({
         where,
         include: { decision: true },
-        orderBy: { totalScore: 'desc' },
-        take: 100,
+        orderBy,
+        take: 200,
       })
       res.json(trends)
     } catch (err) {

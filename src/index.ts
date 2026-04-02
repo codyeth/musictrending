@@ -19,7 +19,7 @@ async function main() {
   startScheduler()
 
   logger.info('main', `Dashboard: http://localhost:${config.dashboard.port}`)
-  logger.info('main', `Features: OpenRouter=${config.hasOpenRouter} | Reddit=${config.hasReddit}`)
+  logger.info('main', `Features: OpenRouter=${config.hasOpenRouter} | Reddit=${config.hasReddit} | YouTube=${config.hasYoutube}`)
 
   // Initial crawl on startup — scorer runs on its own 15-min schedule
   logger.info('main', 'Running initial crawl...')

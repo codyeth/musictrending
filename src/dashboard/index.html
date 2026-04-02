@@ -19,9 +19,9 @@
     .score-bar-bg { background: #2a2a2a; border-radius: 4px; height: 6px; }
     .score-bar { background: linear-gradient(90deg, #7c3aed, #a855f7); border-radius: 4px; height: 6px; }
     .divider { border-color: #2a2a2a; }
-    .market-pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid #333; }
     select, input[type=number] { background: #222; border: 1px solid #333; color: #e5e5e5; }
     select:focus, input[type=number]:focus { outline: none; border-color: #555; }
+    .crawl-time { font-size: 11px; color: #6b7280; }
   </style>
 </head>
 <body class="min-h-screen p-6">
@@ -36,41 +36,65 @@
     </div>
 
     <!-- Filters -->
-    <div class="card rounded-lg p-4 mb-6 flex flex-wrap gap-3 items-center">
-      <select id="filter-source" class="px-3 py-2 rounded text-sm">
-        <option value="ALL">Tất cả nguồn</option>
-        <option value="SPOTIFY">Spotify</option>
-        <option value="APPLE_MUSIC">Apple Music</option>
-        <option value="SHAZAM">Shazam</option>
-        <option value="BILLBOARD">Billboard</option>
-        <option value="MELON">Melon</option>
-        <option value="REDDIT">Reddit</option>
-        <option value="NICONICO">Niconico</option>
-        <option value="GOOGLE_TRENDS">Google Trends</option>
-        <option value="MANUAL">Thêm thủ công</option>
-      </select>
-      <select id="filter-type" class="px-3 py-2 rounded text-sm">
-        <option value="ALL">Tất cả loại</option>
-        <option value="REMIX">🎵 REMIX</option>
-        <option value="IDEA">💡 IDEA</option>
-      </select>
-      <select id="filter-urgency" class="px-3 py-2 rounded text-sm">
-        <option value="ALL">Tất cả mức độ</option>
-        <option value="RUSH">🔴 GẤP (RUSH)</option>
-        <option value="WATCH">🟠 Theo dõi (WATCH)</option>
-      </select>
-      <select id="filter-decided" class="px-3 py-2 rounded text-sm">
-        <option value="pending">Chưa duyệt</option>
-        <option value="decided">Đã duyệt</option>
-        <option value="">Tất cả</option>
-      </select>
-      <div class="flex items-center gap-2 text-sm text-gray-400">
-        <span>Điểm tối thiểu ≥</span>
-        <input id="filter-score" type="number" value="0" min="0" max="100" class="w-16 px-2 py-2 rounded text-sm">
+    <div class="card rounded-lg p-4 mb-4">
+      <div class="flex flex-wrap gap-3 items-center">
+        <!-- Source -->
+        <select id="filter-source" class="px-3 py-2 rounded text-sm">
+          <option value="ALL">Tất cả nguồn</option>
+          <option value="YOUTUBE">▶️ YouTube</option>
+          <option value="TIKTOK">🎵 TikTok</option>
+          <option value="MANUAL">✏️ Thêm thủ công</option>
+        </select>
+
+        <!-- Type -->
+        <select id="filter-type" class="px-3 py-2 rounded text-sm">
+          <option value="ALL">Tất cả loại</option>
+          <option value="REMIX">🎵 REMIX</option>
+          <option value="IDEA">💡 IDEA</option>
+        </select>
+
+        <!-- Urgency -->
+        <select id="filter-urgency" class="px-3 py-2 rounded text-sm">
+          <option value="ALL">Tất cả mức độ</option>
+          <option value="RUSH">🔴 GẤP (RUSH)</option>
+          <option value="WATCH">🟠 Theo dõi (WATCH)</option>
+        </select>
+
+        <!-- Decision status -->
+        <select id="filter-decided" class="px-3 py-2 rounded text-sm">
+          <option value="pending">Chưa duyệt</option>
+          <option value="decided">Đã duyệt</option>
+          <option value="">Tất cả</option>
+        </select>
+
+        <!-- Min score -->
+        <div class="flex items-center gap-2 text-sm text-gray-400">
+          <span>Điểm ≥</span>
+          <input id="filter-score" type="number" value="0" min="0" max="100" class="w-16 px-2 py-2 rounded text-sm">
+        </div>
+
+        <!-- Sort -->
+        <select id="sort-by" class="px-3 py-2 rounded text-sm">
+          <option value="newest">🕐 Mới nhất trước</option>
+          <option value="score">⭐ Điểm cao nhất</option>
+          <option value="score_asc">⭐ Điểm thấp nhất</option>
+          <option value="oldest">🕐 Cũ nhất trước</option>
+        </select>
+
+        <button onclick="loadTrends()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-sm transition-colors">
+          Lọc
+        </button>
+
+        <button onclick="resetFilters()" class="bg-[#2a2a2a] hover:bg-[#333] text-gray-400 px-4 py-2 rounded text-sm transition-colors">
+          Reset
+        </button>
       </div>
-      <button onclick="loadTrends()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded text-sm transition-colors">
-        Lọc
-      </button>
+
+      <!-- Active filter summary + result count -->
+      <div class="flex items-center justify-between mt-3 pt-3 border-t border-[#2a2a2a]">
+        <span id="result-count" class="text-xs text-gray-500"></span>
+        <span id="last-refresh" class="text-xs text-gray-600"></span>
+      </div>
     </div>
 
     <!-- Trends List -->
@@ -78,6 +102,27 @@
   </div>
 
   <script>
+    function fmtTime(iso) {
+      if (!iso) return '—'
+      const d = new Date(iso)
+      const now = new Date()
+      const diffMs = now - d
+      const diffMin = Math.floor(diffMs / 60000)
+      const diffH = Math.floor(diffMs / 3600000)
+      const diffD = Math.floor(diffMs / 86400000)
+      if (diffMin < 1) return 'vừa xong'
+      if (diffMin < 60) return `${diffMin} phút trước`
+      if (diffH < 24) return `${diffH} giờ trước`
+      if (diffD < 7) return `${diffD} ngày trước`
+      return d.toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    }
+
+    function fmtDateTime(iso) {
+      if (!iso) return '—'
+      const d = new Date(iso)
+      return d.toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    }
+
     async function loadStats() {
       const res = await fetch('/api/stats')
       const data = await res.json()
@@ -90,42 +135,63 @@
     }
 
     async function loadTrends() {
-      const source = document.getElementById('filter-source').value
-      const type = document.getElementById('filter-type').value
-      const urgency = document.getElementById('filter-urgency').value
-      const decided = document.getElementById('filter-decided').value
+      const source   = document.getElementById('filter-source').value
+      const type     = document.getElementById('filter-type').value
+      const urgency  = document.getElementById('filter-urgency').value
+      const decided  = document.getElementById('filter-decided').value
       const minScore = document.getElementById('filter-score').value
+      const sortBy   = document.getElementById('sort-by').value
 
-      const params = new URLSearchParams({ source, type, urgency, decided, minScore })
+      const params = new URLSearchParams({ source, type, urgency, decided, minScore, sortBy })
       const res = await fetch(`/api/trends?${params}`)
       const trends = await res.json()
+
+      document.getElementById('result-count').textContent = `${trends.length} kết quả`
+      document.getElementById('last-refresh').textContent = `Cập nhật lúc ${fmtDateTime(new Date().toISOString())}`
 
       const container = document.getElementById('trends')
       if (trends.length === 0) {
         container.innerHTML = '<p class="text-gray-500 text-center py-12">Không có trend nào.</p>'
         return
       }
-
       container.innerHTML = trends.map(t => renderCard(t)).join('')
     }
 
     function renderCard(t) {
-      const raw = t.rawData ? safeJSON(t.rawData) : {}
-      const scores = t.scores ? safeJSON(t.scores) : {}
+      const raw    = t.rawData ? safeJSON(t.rawData) : {}
+      const scores = t.scores  ? safeJSON(t.scores)  : {}
       const badgeClass = t.urgency === 'RUSH' ? 'badge-rush' : t.urgency === 'WATCH' ? 'badge-watch' : 'badge-new'
-      const badgeLabel = t.urgency === 'RUSH' ? '🔴 GẤP' : t.urgency === 'WATCH' ? '🟠 THEO DÕI' : '🆕 MỚI'
-      const typeBadge = t.type === 'IDEA'
+      const badgeLabel = t.urgency === 'RUSH' ? '🔴 GẤP'    : t.urgency === 'WATCH' ? '🟠 THEO DÕI' : '🆕 MỚI'
+      const typeBadge  = t.type === 'IDEA'
         ? `<span class="text-xs px-2 py-0.5 rounded font-medium badge-idea">💡 IDEA</span>`
         : `<span class="text-xs px-2 py-0.5 rounded font-medium badge-remix">🎵 REMIX</span>`
 
-      // Score breakdown bars
+      // Crawl time + release date (always show something)
+      const releaseDateStr = raw.releaseDate || raw.publishedAt
+        ? (raw.releaseDate
+            ? `<span class="text-[#4ade80]">Ra mắt: ${raw.releaseDate}</span>`
+            : `<span class="text-blue-400">Đăng: ${fmtDateTime(raw.publishedAt)}</span>`)
+        : `<span class="text-gray-600">Ra mắt: không rõ</span>`
+
+      const crawlTimeHtml = `
+        <div class="crawl-time flex items-center gap-2 mt-1">
+          <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span>Crawled: ${fmtTime(t.createdAt)}</span>
+          <span class="text-gray-600">·</span>
+          ${releaseDateStr}
+        </div>
+      `
+
+      // Score bars
       const scoreItems = [
-        { key: 'leadTime', label: 'Thời điểm vàng', max: 25 },
-        { key: 'revenuePotential', label: 'Tiềm năng doanh thu', max: 25 },
-        { key: 'velocity', label: 'Tốc độ lan truyền', max: 20 },
-        { key: 'crossPlatform', label: 'Lan nhiều nền tảng', max: 15 },
-        { key: 'feasibility', label: 'Khả thi với team', max: 10 },
-        { key: 'saturation', label: 'Ít bài cạnh tranh', max: 5 },
+        { key: 'leadTime',         label: 'Thời điểm vàng',       max: 25 },
+        { key: 'revenuePotential', label: 'Tiềm năng doanh thu',   max: 25 },
+        { key: 'velocity',         label: 'Tốc độ lan truyền',     max: 20 },
+        { key: 'crossPlatform',    label: 'Lan nhiều nền tảng',    max: 15 },
+        { key: 'feasibility',      label: 'Khả thi với team',      max: 10 },
+        { key: 'saturation',       label: 'Ít bài cạnh tranh',     max: 5  },
       ]
       const scoreBars = scoreItems.map(s => {
         const val = scores[s.key] ?? 0
@@ -133,117 +199,80 @@
         return `
           <div>
             <div class="flex justify-between text-xs text-gray-500 mb-1">
-              <span>${s.label}</span>
-              <span class="text-gray-400">${val}/${s.max}</span>
+              <span>${s.label}</span><span class="text-gray-400">${val}/${s.max}</span>
             </div>
-            <div class="score-bar-bg">
-              <div class="score-bar" style="width:${pct}%"></div>
-            </div>
-          </div>
-        `
+            <div class="score-bar-bg"><div class="score-bar" style="width:${pct}%"></div></div>
+          </div>`
       }).join('')
 
-      // Tags
-      const tags = raw.tags ?? []
-      const tagHtml = tags.map(tag => `<span class="tag">${tag}</span>`).join('')
-
-      // Market progression
+      const tags       = normTags(raw.tags)
+      const tagHtml    = tags.map(tag => `<span class="tag">${esc(tag)}</span>`).join('')
       const marketProg = raw.marketProgression ? `
         <div class="flex items-center gap-2 text-xs text-blue-300 mt-1">
-          <span class="text-gray-500">Lan theo thứ tự:</span>
-          <span>${raw.marketProgression}</span>
-        </div>
-      ` : ''
-
-      // Lead time remaining
+          <span class="text-gray-500">Lan theo thứ tự:</span><span>${esc(str(raw.marketProgression))}</span>
+        </div>` : ''
       const leadTimeHtml = raw.leadTimeWeeks !== undefined ? `
         <span class="text-xs ${raw.leadTimeWeeks <= 1 ? 'text-red-400' : raw.leadTimeWeeks <= 3 ? 'text-yellow-400' : 'text-green-400'} font-medium">
           ⏱ ${raw.leadTimeWeeks} tuần còn lại
-        </span>
-      ` : ''
+        </span>` : ''
 
-      // BPM + style
       const vibeDetails = []
-      if (raw.bpm) vibeDetails.push(`<span class="text-purple-400">${raw.bpm}</span>`)
-      if (raw.style) vibeDetails.push(`<span class="text-gray-300">${raw.style}</span>`)
+      if (raw.bpm)   vibeDetails.push(`<span class="text-purple-400">${esc(str(raw.bpm))}</span>`)
+      if (raw.style) vibeDetails.push(`<span class="text-gray-300">${esc(str(raw.style))}</span>`)
       const vibeDetailsHtml = vibeDetails.length ? `<div class="text-xs mt-1">${vibeDetails.join(' · ')}</div>` : ''
 
-      // Ref tracks
-      const refTracks = raw.refTracks ?? []
+      const refTracks    = Array.isArray(raw.refTracks) ? raw.refTracks : []
       const refTracksHtml = refTracks.length ? `
         <div class="mt-3">
-          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Bài tham khảo (Ref Tracks)</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Bài tham khảo</div>
           <div class="space-y-1.5">
             ${refTracks.map(rt => {
-              const searchUrl = rt.source === 'niconico'
-                ? `https://www.nicovideo.jp/search/${encodeURIComponent(rt.searchQuery ?? rt.title)}`
-                : `https://www.youtube.com/results?search_query=${encodeURIComponent(rt.searchQuery ?? `${rt.title} ${rt.artist}`)}`
-              const icon = rt.source === 'niconico' ? '🎌' : '▶'
-              return `
-                <div class="flex items-center justify-between gap-2">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-gray-500">${icon}</span>
-                    <a href="${searchUrl}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 truncate">${rt.title} — ${rt.artist}</a>
-                  </div>
-                  <span class="text-xs text-gray-500 flex-shrink-0">${rt.viewCount ?? ''}</span>
-                </div>
-              `
+              const q = encodeURIComponent(rt.searchQuery ?? `${rt.title ?? ''} ${rt.artist ?? ''}`)
+              const url = `https://www.youtube.com/results?search_query=${q}`
+              return `<div class="flex items-center justify-between gap-2">
+                <a href="${url}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 truncate">▶ ${esc(rt.title)} — ${esc(rt.artist)}</a>
+                <span class="text-xs text-gray-500 flex-shrink-0">${esc(rt.viewCount ?? '')}</span>
+              </div>`
             }).join('')}
           </div>
-        </div>
-      ` : ''
+        </div>` : ''
 
-      // Saturation per market
-      const satByMarket = raw.saturationByMarket ?? {}
-      const satKeys = Object.keys(satByMarket)
-      const satHtml = satKeys.length ? `
+      const satByMarket = (raw.saturationByMarket && typeof raw.saturationByMarket === 'object') ? raw.saturationByMarket : {}
+      const satHtml = Object.keys(satByMarket).length ? `
         <div class="mt-3">
-          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Độ bão hòa (ước tính)</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Độ bão hòa</div>
           <div class="flex flex-wrap gap-2">
-            ${satKeys.map(m => `
-              <div class="card-inner rounded px-2 py-1 text-xs">
-                <span class="text-gray-500 uppercase">${m}</span>
-                <span class="text-gray-300 ml-1">${satByMarket[m]}</span>
-              </div>
-            `).join('')}
+            ${Object.entries(satByMarket).map(([m,v]) =>
+              `<div class="card-inner rounded px-2 py-1 text-xs"><span class="text-gray-500 uppercase">${esc(m)}</span><span class="text-gray-300 ml-1">${esc(str(v))}</span></div>`
+            ).join('')}
           </div>
-        </div>
-      ` : ''
+        </div>` : ''
 
-      // CPM per market
-      const cpmData = raw.cpm ?? {}
-      const cpmKeys = Object.keys(cpmData)
-      const cpmHtml = cpmKeys.length ? `
+      const cpmData = (raw.cpm && typeof raw.cpm === 'object') ? raw.cpm : {}
+      const cpmHtml = Object.keys(cpmData).length ? `
         <div class="mt-3">
-          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">CPM ước tính ($/1000 lượt xem)</div>
+          <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">CPM ước tính ($/1000)</div>
           <div class="flex flex-wrap gap-2">
-            ${cpmKeys.map(m => `
-              <div class="card-inner rounded px-2 py-1 text-xs">
-                <span class="text-gray-500 uppercase">${m}</span>
-                <span class="text-green-400 ml-1">${cpmData[m]}</span>
-              </div>
-            `).join('')}
+            ${Object.entries(cpmData).map(([m,v]) =>
+              `<div class="card-inner rounded px-2 py-1 text-xs"><span class="text-gray-500 uppercase">${esc(m)}</span><span class="text-green-400 ml-1">${esc(str(v))}</span></div>`
+            ).join('')}
           </div>
-        </div>
-      ` : ''
+        </div>` : ''
 
-      // Decision buttons
-      const decisionLabels = { APPROVE: '✅ Đã duyệt — làm track này', WATCH: '⏳ Theo dõi thêm', REJECT: '❌ Bỏ qua' }
+      const decisionLabels = { APPROVE: '✅ Đã duyệt', WATCH: '⏳ Theo dõi', REJECT: '❌ Bỏ qua' }
       const decisionHtml = !t.decision ? `
         <div class="flex gap-2 mt-4 pt-3 border-t divider">
-          <button onclick="decide(${t.id}, 'APPROVE', this)" class="flex-1 text-xs bg-green-900 hover:bg-green-800 text-green-200 px-3 py-1.5 rounded transition-colors">✅ Duyệt — làm track này</button>
-          <button onclick="decide(${t.id}, 'WATCH', this)" class="flex-1 text-xs bg-yellow-900 hover:bg-yellow-800 text-yellow-200 px-3 py-1.5 rounded transition-colors">⏳ Theo dõi thêm</button>
-          <button onclick="decide(${t.id}, 'REJECT', this)" class="flex-1 text-xs bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded transition-colors">❌ Bỏ qua</button>
-        </div>
-      ` : `
+          <button onclick="decide(${t.id},'APPROVE',this)" class="flex-1 text-xs bg-green-900 hover:bg-green-800 text-green-200 px-3 py-1.5 rounded transition-colors">✅ Duyệt</button>
+          <button onclick="decide(${t.id},'WATCH',this)"  class="flex-1 text-xs bg-yellow-900 hover:bg-yellow-800 text-yellow-200 px-3 py-1.5 rounded transition-colors">⏳ Theo dõi</button>
+          <button onclick="decide(${t.id},'REJECT',this)" class="flex-1 text-xs bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded transition-colors">❌ Bỏ qua</button>
+        </div>` : `
         <div class="mt-3 pt-3 border-t divider">
-          <span class="text-xs text-gray-500">Đã quyết định: <span class="text-gray-300">${decisionLabels[t.decision.action] ?? t.decision.action}</span></span>
-        </div>
-      `
+          <span class="text-xs text-gray-500">Đã quyết định: <span class="text-gray-300">${decisionLabels[t.decision.action] ?? t.decision.action}</span>
+          <span class="ml-2 text-gray-600">· ${fmtTime(t.decision.decidedAt)}</span></span>
+        </div>`
 
       return `
         <div class="card rounded-xl p-5">
-          <!-- Top row: thumbnail + title + badges -->
           <div class="flex items-start gap-4">
             ${t.thumbnail
               ? `<img src="${t.thumbnail}" class="w-16 h-16 rounded-lg object-cover flex-shrink-0">`
@@ -251,8 +280,8 @@
             }
             <div class="flex-1 min-w-0">
               <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span class="font-semibold text-white text-base leading-tight">${t.title}</span>
-                <span class="text-gray-400 text-sm">— ${t.artist}</span>
+                <span class="font-semibold text-white text-base leading-tight">${esc(t.title)}</span>
+                <span class="text-gray-400 text-sm">— ${esc(t.artist)}</span>
               </div>
               <div class="flex flex-wrap items-center gap-1.5 mb-1">
                 ${typeBadge}
@@ -262,6 +291,7 @@
                 <span class="text-sm font-bold text-purple-400 ml-1">${t.totalScore}/100</span>
                 ${leadTimeHtml}
               </div>
+              ${crawlTimeHtml}
               ${marketProg}
               <div class="flex flex-wrap gap-1 mt-2">${tagHtml}</div>
             </div>
@@ -269,48 +299,57 @@
 
           <hr class="divider my-4">
 
-          <!-- Two column: vibe + scores -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Left: vibe/style info -->
             <div>
               <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Cảm giác & Phong cách</div>
-              <p class="text-sm text-gray-300 leading-relaxed">${t.vibe ?? '—'}</p>
+              <p class="text-sm text-gray-300 leading-relaxed">${esc(t.vibe) || '—'}</p>
               ${vibeDetailsHtml}
               ${refTracksHtml}
             </div>
-            <!-- Right: score breakdown -->
             <div>
               <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Phân tích điểm</div>
-              <div class="space-y-2">
-                ${scoreBars}
-              </div>
+              <div class="space-y-2">${scoreBars}</div>
             </div>
           </div>
 
-          <!-- Market data row -->
           ${satHtml || cpmHtml ? `
             <hr class="divider my-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>${satHtml}</div>
-              <div>${cpmHtml}</div>
-            </div>
-          ` : ''}
+              <div>${satHtml}</div><div>${cpmHtml}</div>
+            </div>` : ''}
 
-          <!-- AI Suggest box -->
           ${t.aiSuggest ? `
             <div class="suggest-box rounded-lg px-4 py-3 mt-4">
               <div class="text-xs text-green-500 font-semibold uppercase tracking-wide mb-1">Gợi ý từ AI</div>
-              <p class="text-sm text-green-200 leading-relaxed">${t.aiSuggest}</p>
-            </div>
-          ` : ''}
+              <p class="text-sm text-green-200 leading-relaxed">${esc(t.aiSuggest)}</p>
+            </div>` : ''}
 
           ${decisionHtml}
-        </div>
-      `
+        </div>`
     }
 
     function safeJSON(str) {
       try { return typeof str === 'string' ? JSON.parse(str) : str } catch { return {} }
+    }
+
+    // Escape HTML special chars to prevent injection / broken layout
+    function esc(str) {
+      if (str == null) return ''
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    }
+
+    // Normalise tags: accept array or space/comma-separated string
+    function normTags(val) {
+      if (!val) return []
+      if (Array.isArray(val)) return val.map(String).filter(Boolean)
+      return String(val).split(/[\s,]+/).filter(Boolean)
+    }
+
+    // Ensure a value is rendered as a plain string
+    function str(val) {
+      if (val == null) return ''
+      if (typeof val === 'object') return JSON.stringify(val)
+      return String(val)
     }
 
     async function decide(trendId, action, btn) {
@@ -319,11 +358,24 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trendId, action }),
       })
-      const buttonRow = btn.closest('.flex.gap-2')
-      const actionLabel = { APPROVE: '✅ Đã duyệt — làm track này', WATCH: '⏳ Theo dõi thêm', REJECT: '❌ Bỏ qua' }
-      if (buttonRow) buttonRow.outerHTML = `<div class="mt-3 pt-3 border-t divider"><span class="text-xs text-gray-500">Đã quyết định: <span class="text-gray-300">${actionLabel[action] ?? action}</span></span></div>`
+      const row = btn.closest('.flex.gap-2')
+      const labels = { APPROVE: '✅ Đã duyệt', WATCH: '⏳ Theo dõi', REJECT: '❌ Bỏ qua' }
+      if (row) row.outerHTML = `<div class="mt-3 pt-3 border-t divider"><span class="text-xs text-gray-500">Đã quyết định: <span class="text-gray-300">${labels[action] ?? action}</span></span></div>`
       loadStats()
     }
+
+    function resetFilters() {
+      document.getElementById('filter-source').value  = 'ALL'
+      document.getElementById('filter-type').value    = 'ALL'
+      document.getElementById('filter-urgency').value = 'ALL'
+      document.getElementById('filter-decided').value = 'pending'
+      document.getElementById('filter-score').value   = '0'
+      document.getElementById('sort-by').value        = 'newest'
+      loadTrends()
+    }
+
+    // Auto-apply filter when sort changes
+    document.getElementById('sort-by').addEventListener('change', loadTrends)
 
     loadStats()
     loadTrends()

@@ -172,7 +172,7 @@ Tự thêm bài vào hệ thống. Nhập theo dạng: \`Tên bài - Artist\`
 Xuất danh sách bài đã *DUYỆT* ra file CSV.
 ━━━━━━━━━━━━━━━
 📡 *Nguồn dữ liệu*
-TikTok · YouTube · SoundCloud · Reddit · Google Trends
+TikTok · YouTube Search · Kworb · YouTube Channels
 _Crawl tự động: 07:00 · 13:00 · 20:00 hàng ngày_`
 }
 
@@ -248,10 +248,9 @@ function formatTrend(trend: {
 // ─── Crawl result helper ──────────────────────────────────────────
 
 const SUGGEST_SOURCES = [
-  'TikTok Trending (cần setup)',
-  'YouTube Music Charts',
-  'SoundCloud Trending',
-  'Beatport Top 100',
+  'YouTube channel phonk mới',
+  'YouTube channel montagem/funk Brazil',
+  'TikTok trending (khi API available)',
 ]
 
 async function sendCrawlResult(chatId: number, newTrends: { id: number; title: string; artist: string; source: string; market: string | null; type: string }[]): Promise<void> {
@@ -695,7 +694,7 @@ function registerCallbacks(): void {
       }
       lastCrawlTime.set(userId, Date.now())
       await bot.editMessageText(
-        `⏳ *Đang crawl tất cả nguồn...*\nTikTok · YouTube · SoundCloud · Reddit · Google Trends`,
+        `⏳ *Đang crawl tất cả nguồn...*\nTikTok · YouTube Search · Kworb · YouTube Channels`,
         { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
       )
       const newTrends = await crawlAll(15)  // default 15 from button
@@ -911,7 +910,7 @@ function registerCommands(): void {
     const rawCount = match?.[1] ? parseInt(match[1]) : 15
     const target = Math.min(Math.max(1, rawCount), 15)
     lastCrawlTime.set(userId, Date.now())
-    await bot.sendMessage(msg.chat.id, `⏳ *Đang crawl — tìm tối đa ${target} bài mới...*\nTikTok · YouTube · SoundCloud · Reddit · Google Trends`, { parse_mode: 'Markdown' })
+    await bot.sendMessage(msg.chat.id, `⏳ *Đang crawl — tìm tối đa ${target} bài mới...*\nTikTok · YouTube Search · Kworb · YouTube Channels`, { parse_mode: 'Markdown' })
     const newTrends = await crawlAll(target)
     await sendCrawlResult(msg.chat.id, newTrends)
   })

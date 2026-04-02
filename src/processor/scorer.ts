@@ -29,42 +29,93 @@ function makeClient(apiKey: string): OpenAI {
   return new OpenAI({ baseURL: config.openrouter.apiBase, apiKey })
 }
 
-const SYSTEM_PROMPT_REMIX = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
+const SYSTEM_PROMPT_REMIX = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk/phonk.
 Các trend dưới đây là loại REMIX — bài nhạc cụ thể đang viral, team có thể remake/cover ngay.
-Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Bài ra trong 14 ngày = 25đ (tối đa). Ra 15-30 ngày = 10đ. Ra TRÊN 1 THÁNG = 0đ và tổng điểm tối đa chỉ là 20/100.
-2. revenuePotential (25đ): CPM thị trường - US/BR/KR = cao, ID = trung bình.
-3. velocity (20đ): Dùng trường "velocityData" trong rawData nếu có (dailyViews, weeklyViews, velocityScore, engagementScore). velocityScore > 120 = tăng tốc mạnh = 18-20đ. Nếu không có data, ước tính theo nguồn và rank.
-4. crossPlatform (15đ): Dùng trường "crossPlatformSources" trong rawData — đây là data THẬT từ hệ thống. 3+ nguồn = 15đ, 2 nguồn = 10đ, 1 nguồn = 5đ. Nếu có "secondWaveSignal": true = bonus 3đ.
-5. feasibility (10đ): Team instrumental/funk có remake được không. Vocal rõ ràng, melody dễ bắt = cao.
-6. saturation (5đ): Ít bài cover tương tự đã có = điểm cao.
+Tham chiếu thực tế (các bài đã proven để so sánh):
+- GOZALO (Ultra Slowed) — Ariis: 49M views, 654K likes, ra Nov 2025, like rate 1.32% → đã peak
+- Cry For Me WA WA WA — Ironmouse: 34M views, 556K likes, ra Jan 2026, like rate 1.64% → còn hot
+- MONTAGEM ALQUIMIA (SLOWED) — h6itam: 13M views, 218K likes, ra Jan 2026, like rate 1.62%
+- BAD ENDING FUNK — Shimuda: 5.8M views, 118K likes, ra Feb 2026, like rate 2.02%, ~165K views/ngày → sweet spot tốt nhất
+- MONTAGEM UNKNOWN — AKXNESHIVA: 5.7M views, 124K likes, ra Jan 2026, like rate 2.15%
+- MONTAGEM LALALA — Mishashi Sensei: 1.8M views, 32K likes, ra Dec 2025
+
+Chấm điểm theo 6 tiêu chí:
+
+1. leadTime (25đ): Thời điểm vàng để làm cover:
+   - Ra trong 30 ngày = 25đ (window tốt nhất — bài đang tăng, chưa bão hòa)
+   - Ra 31-60 ngày = 15đ (còn kịp nếu bài vẫn tăng)
+   - Ra 61-90 ngày = 8đ (muộn nhưng nếu views vẫn >50K/ngày thì làm được)
+   - Ra trên 90 ngày = 2đ và tổng điểm tối đa chỉ 25/100
+
+2. revenuePotential (25đ): CPM YouTube theo thị trường:
+   - US/BR = CPM cao ($3-8) = 20-25đ
+   - KR/JP = CPM khá ($2-5) = 15-20đ
+   - ID = CPM thấp ($0.5-2) = 8-12đ
+   - Nếu bài lan đa thị trường = cộng thêm 3đ
+
+3. velocity (20đ): Tốc độ tăng trưởng thực tế:
+   - Dùng "velocityData" trong rawData nếu có (dailyViews, velocityScore, engagementScore)
+   - dailyViews > 200K = 20đ | 100K-200K = 16đ | 50K-100K = 12đ | 10K-50K = 7đ | <10K = 3đ
+   - Like rate > 2% = bonus 3đ | 1.5-2% = bonus 1đ
+   - velocityScore > 120 = tăng tốc mạnh, cộng thêm 2đ
+   - Nếu không có data số, ước tính theo rank và nguồn
+
+4. crossPlatform (15đ): Dùng "crossPlatformSources" trong rawData — data THẬT từ hệ thống:
+   - 3+ nguồn = 15đ | 2 nguồn = 10đ | 1 nguồn = 5đ
+   - "secondWaveSignal": true = bonus 3đ (đang từ Asia lan sang West)
+
+5. feasibility (10đ): Team instrumental/funk có remake được không:
+   - Phonk/funk/slowed+reverb/montagem = rất phù hợp = 8-10đ
+   - Melody rõ ràng, loop ngắn, dễ chơi lại = cao
+   - Cần vocal phức tạp hoặc live band lớn = thấp
+
+6. saturation (5đ): Thị trường cover còn trống không:
+   - Dưới 10 bài cover instrumental trên YouTube = 5đ
+   - 10-50 bài = 3đ | Trên 50 bài = 1đ
 
 Thông tin bổ sung cần trả về:
-- bpm: ước tính range BPM
-- style: nhạc cụ chủ đạo, vibe, aesthetic (tiếng Việt)
-- refTracks: 2-3 bài tương tự để tham khảo (title, artist, viewCount, source "youtube"/"soundcloud", searchQuery)
-- saturation: số bài cover đã có trên thị trường theo market (ước tính)
-- cpm: CPM YouTube theo market
-- marketProgression: thứ tự thị trường lan theo tuần (dùng "seenInMarkets" nếu có)
-- leadTimeWeeks: số tuần còn lại để làm kịp (0 = đã muộn)
-- releaseYear: năm phát hành thực tế của bài (ước tính nếu không biết chính xác)
-- tags: 3-5 tag mô tả
+- bpm: ước tính range BPM (ví dụ: "130-140 BPM")
+- style: nhạc cụ chủ đạo, vibe, aesthetic (tiếng Việt, ví dụ: "phonk tối, bass nặng, hi-hat stutter")
+- refTracks: 2-3 bài tương tự đã thành công để tham khảo (title, artist, viewCount ước tính, source "youtube", searchQuery)
+- saturation: ước tính số bài cover instrumental theo market
+- cpm: CPM YouTube ước tính theo market ($/1000 views)
+- marketProgression: thứ tự thị trường bài đang lan (dùng "seenInMarkets" nếu có, ví dụ: "BR → US → ID")
+- leadTimeWeeks: số tuần còn lại để làm kịp trước khi bão hòa (0 = đã quá muộn)
+- releaseYear: năm phát hành thực tế
+- tags: 3-5 tag ngắn mô tả thể loại/vibe
 
-QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT.
+QUAN TRỌNG: Tất cả text (vibe, aiSuggest, style) phải bằng TIẾNG VIỆT. aiSuggest phải cụ thể: gợi ý nhạc cụ, tempo, vibe để team làm cover hiệu quả nhất.
 
 Trả về mảng JSON, không có text khác:
-[{ "index": 1, "scores": {...}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "releaseYear": <năm>, "tags": [...] }]`
+[{ "index": 1, "scores": {"leadTime":0,"revenuePotential":0,"velocity":0,"crossPlatform":0,"feasibility":0,"saturation":0}, "totalScore": <tổng>, "vibe": "...", "aiSuggest": "...", "bpm": "...", "style": "...", "refTracks": [...], "saturation": {...}, "cpm": {...}, "marketProgression": "...", "leadTimeWeeks": <số>, "releaseYear": <năm>, "tags": [...] }]`
 
-const SYSTEM_PROMPT_IDEA = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk.
+const SYSTEM_PROMPT_IDEA = `Bạn là chuyên gia phân tích trend nhạc cho team sản xuất nhạc instrumental/funk/phonk.
 Các trend dưới đây là loại IDEA — tín hiệu hành vi người dùng, hướng làm nhạc, không nhất thiết là bài cụ thể.
-Chấm điểm theo 6 tiêu chí (điểm tối đa ghi trong ngoặc):
 
-1. leadTime (25đ): Trend bùng nổ trong 14 ngày = 25đ. Đang nổi 15-30 ngày = 10đ. Đã qua 1 tháng = 0đ và tổng điểm tối đa chỉ là 20/100.
-2. revenuePotential (25đ): Nếu làm theo hướng này, tiềm năng CPM thị trường đích là bao nhiêu.
-3. velocity (20đ): Dùng trường "velocityData" trong rawData nếu có. Nếu không có, ước tính theo nguồn/engagement.
-4. crossPlatform (15đ): Dùng trường "crossPlatformSources" trong rawData — data THẬT. 3+ nguồn = 15đ, 2 = 10đ, 1 = 5đ.
-5. feasibility (10đ): Team instrumental/funk có thể khai thác hướng này không. Nhạc đại chúng, dễ nghe = cao.
+Tham chiếu thực tế: team chuyên làm phonk/funk/slowed instrumental. Các hướng đang hot: montagem Brazilian phonk, slowed+reverb, lo-fi funk, dark phonk.
+
+Chấm điểm theo 6 tiêu chí:
+
+1. leadTime (25đ): Trend còn đang lên hay đã qua đỉnh:
+   - Bùng nổ trong 30 ngày gần đây = 25đ
+   - Đang nổi 31-60 ngày = 15đ
+   - Trending 61-90 ngày = 8đ
+   - Đã qua 90 ngày = 2đ và tổng điểm tối đa 25/100
+
+2. revenuePotential (25đ): CPM thị trường nếu làm theo hướng này:
+   - US/BR = 20-25đ | KR/JP = 15-20đ | ID = 8-12đ | Đa thị trường = bonus 3đ
+
+3. velocity (20đ): Dùng "velocityData" nếu có. Ước tính mức độ lan truyền theo engagement/traffic data.
+   - Tăng trưởng rất nhanh (viral) = 18-20đ | Tăng đều = 10-14đ | Chậm = 3-7đ
+
+4. crossPlatform (15đ): Dùng "crossPlatformSources" — data THẬT:
+   - 3+ nguồn = 15đ | 2 nguồn = 10đ | 1 nguồn = 5đ | secondWaveSignal = bonus 3đ
+
+5. feasibility (10đ): Team instrumental/funk có khai thác được không:
+   - Hướng phonk/funk/lofi = rất phù hợp = 8-10đ
+   - Cần kỹ thuật đặc thù hoặc vocal = thấp hơn
+
 6. saturation (5đ): Thị trường nhạc theo hướng này còn chỗ trống không.
 
 Thông tin bổ sung cần trả về:
