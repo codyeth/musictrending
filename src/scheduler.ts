@@ -54,11 +54,10 @@ function getEffectiveDate(trend: { createdAt: Date; rawData: string | null }): D
   return trend.createdAt
 }
 
+// Send exactly 1 alert per call — caller controls the cadence
 async function checkAndAlert() {
   const sevenDaysAgo = new Date(Date.now() - ALERT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000)
 
-  // Fetch all unalerted completed trends (no score threshold — send everything)
-  // Fetch more than needed so we can filter by release date then sort
   const candidates = await prisma.trend.findMany({
     where: {
       status: 'COMPLETED',
@@ -69,29 +68,22 @@ async function checkAndAlert() {
     take: 100,
   })
 
-  // Filter: drop anything whose effective date is older than 7 days
-  const fresh = candidates.filter(t => getEffectiveDate(t) >= sevenDaysAgo)
+  // Filter older than 7 days, sort newest first
+  const fresh = candidates
+    .filter(t => getEffectiveDate(t) >= sevenDaysAgo)
+    .sort((a, b) => getEffectiveDate(b).getTime() - getEffectiveDate(a).getTime())
 
-  // Sort: newest effective date first
-  fresh.sort((a, b) => getEffectiveDate(b).getTime() - getEffectiveDate(a).getTime())
+  if (fresh.length === 0) return
 
-  const toAlert = fresh.slice(0, ALERT_MAX_PER_RUN)
-
-  if (toAlert.length === 0) return
-
-  for (const trend of toAlert) {
-    // Mark alerted BEFORE sending — prevents duplicate if send crashes mid-loop
-    await prisma.trend.update({ where: { id: trend.id }, data: { alerted: true } })
-    try {
-      await pushAlert(trend)
-    } catch (err) {
-      logger.warn('scheduler', `Alert send failed for trend ${trend.id}: ${err instanceof Error ? err.message : String(err)}`)
-    }
-    await new Promise(r => setTimeout(r, 1000))
+  // Send only the single freshest unalerted trend
+  const trend = fresh[0]!
+  await prisma.trend.update({ where: { id: trend.id }, data: { alerted: true } })
+  try {
+    await pushAlert(trend)
+    logger.info('scheduler', `Alerted trend ${trend.id} — "${trend.title}" (${fresh.length - 1} more queued)`)
+  } catch (err) {
+    logger.warn('scheduler', `Alert send failed for trend ${trend.id}: ${err instanceof Error ? err.message : String(err)}`)
   }
-
-  const skipped = candidates.length - fresh.length
-  logger.info('scheduler', `Alerted ${toAlert.length} trends${skipped > 0 ? `, skipped ${skipped} older than ${ALERT_MAX_AGE_DAYS}d` : ''}`)
 }
 
 export function startScheduler() {
@@ -119,13 +111,21 @@ export function startScheduler() {
   // 20:00 — Evening crawl (US/BR prime time content drops)
   cron.schedule('0 20 * * *', () => { void runScheduledCrawl('20:00') })
 
-  // Every 15 minutes — AI Scorer + Alert check
+  // Every 15 minutes — AI Scorer (score pending trends)
   cron.schedule('*/15 * * * *', async () => {
     try {
       await runScorer()
+    } catch (err) {
+      logger.error('scheduler', `Scorer cycle failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  // Every 5 minutes — Send 1 alert card (gradual delivery, not a flood)
+  cron.schedule('*/5 * * * *', async () => {
+    try {
       await checkAndAlert()
     } catch (err) {
-      logger.error('scheduler', `Scorer/alert cycle failed: ${err instanceof Error ? err.message : String(err)}`)
+      logger.error('scheduler', `Alert cycle failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
