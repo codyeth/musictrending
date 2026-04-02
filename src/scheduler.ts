@@ -1,50 +1,132 @@
 import cron from 'node-cron'
 import { crawlAll } from './crawlers/all.js'
-import { crawlYoutubeChannels, initDefaultChannels } from './crawlers/youtube-channels.js'
+import { initDefaultChannels } from './crawlers/youtube-channels.js'
 import { runScorer } from './processor/scorer.js'
 import { pushAlert } from './bot/telegram-bot.js'
 import prisma from './db.js'
 import { logger } from './utils/logger.js'
-import { config } from './config.js'
+
+// Max alerts per run and max age of a trend to be alerted
+const ALERT_MAX_PER_RUN = 15
+const ALERT_MAX_AGE_DAYS = 7
+
+/**
+ * Returns true if the pipeline already has enough items to fill an alert run.
+ * Counts: PENDING/PROCESSING (not yet scored) + COMPLETED unalerted fresh items.
+ * If >= ALERT_MAX_PER_RUN, the scheduled crawl can be skipped to save API calls.
+ */
+async function hasSufficientPipeline(): Promise<boolean> {
+  const sevenDaysAgo = new Date(Date.now() - ALERT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000)
+  const [pendingCount, completedCount] = await Promise.all([
+    prisma.trend.count({
+      where: { status: { in: ['PENDING', 'PROCESSING'] } },
+    }),
+    prisma.trend.count({
+      where: {
+        status: 'COMPLETED',
+        alerted: false,
+        decision: null,
+        createdAt: { gte: sevenDaysAgo },
+      },
+    }),
+  ])
+  return (pendingCount + completedCount) >= ALERT_MAX_PER_RUN
+}
+
+/**
+ * Returns the effective date of a trend for sorting/filtering:
+ * releaseDate (from rawData) > publishedAt (YouTube channels) > createdAt
+ */
+function getEffectiveDate(trend: { createdAt: Date; rawData: string | null }): Date {
+  if (trend.rawData) {
+    try {
+      const raw = JSON.parse(trend.rawData) as Record<string, unknown>
+      if (typeof raw['releaseDate'] === 'string' && raw['releaseDate']) {
+        const d = new Date(raw['releaseDate'])
+        if (!isNaN(d.getTime())) return d
+      }
+      if (typeof raw['publishedAt'] === 'string' && raw['publishedAt']) {
+        const d = new Date(raw['publishedAt'])
+        if (!isNaN(d.getTime())) return d
+      }
+    } catch {}
+  }
+  return trend.createdAt
+}
 
 async function checkAndAlert() {
-  const newHighScore = await prisma.trend.findMany({
+  const sevenDaysAgo = new Date(Date.now() - ALERT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000)
+
+  // Fetch all unalerted completed trends (no score threshold — send everything)
+  // Fetch more than needed so we can filter by release date then sort
+  const candidates = await prisma.trend.findMany({
     where: {
       status: 'COMPLETED',
-      totalScore: { gte: config.scoring.alertThreshold },
       alerted: false,
       decision: null,
     },
-    orderBy: { totalScore: 'desc' },
-    take: 5,
+    orderBy: { createdAt: 'desc' },
+    take: 100,
   })
 
-  for (const trend of newHighScore) {
+  // Filter: drop anything whose effective date is older than 7 days
+  const fresh = candidates.filter(t => getEffectiveDate(t) >= sevenDaysAgo)
+
+  // Sort: newest effective date first
+  fresh.sort((a, b) => getEffectiveDate(b).getTime() - getEffectiveDate(a).getTime())
+
+  const toAlert = fresh.slice(0, ALERT_MAX_PER_RUN)
+
+  if (toAlert.length === 0) return
+
+  for (const trend of toAlert) {
+    // Mark alerted BEFORE sending — prevents duplicate if send crashes mid-loop
     await prisma.trend.update({ where: { id: trend.id }, data: { alerted: true } })
-    await pushAlert(trend)
+    try {
+      await pushAlert(trend)
+    } catch (err) {
+      logger.warn('scheduler', `Alert send failed for trend ${trend.id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
     await new Promise(r => setTimeout(r, 1000))
   }
+
+  const skipped = candidates.length - fresh.length
+  logger.info('scheduler', `Alerted ${toAlert.length} trends${skipped > 0 ? `, skipped ${skipped} older than ${ALERT_MAX_AGE_DAYS}d` : ''}`)
 }
 
 export function startScheduler() {
   initDefaultChannels()
 
-  // 07:00 — Full crawl
-  cron.schedule('0 7 * * *', async () => {
-    logger.info('scheduler', 'Running 07:00 full crawl')
-    await crawlAll()
-  })
+  async function runScheduledCrawl(label: string) {
+    try {
+      if (await hasSufficientPipeline()) {
+        logger.info('scheduler', `${label}: pipeline already has ${ALERT_MAX_PER_RUN}+ items — skipping crawl`)
+        return
+      }
+      logger.info('scheduler', `Running ${label} crawl`)
+      await crawlAll()
+    } catch (err) {
+      logger.error('scheduler', `${label} crawl failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
 
-  // 18:00 — YouTube Channels second run
-  cron.schedule('0 18 * * *', async () => {
-    logger.info('scheduler', 'Running 18:00 YouTube Channels')
-    await crawlYoutubeChannels()
-  })
+  // 07:00 — Morning crawl
+  cron.schedule('0 7 * * *', () => { void runScheduledCrawl('07:00') })
+
+  // 13:00 — Midday crawl (catch viral spikes from overnight/morning)
+  cron.schedule('0 13 * * *', () => { void runScheduledCrawl('13:00') })
+
+  // 20:00 — Evening crawl (US/BR prime time content drops)
+  cron.schedule('0 20 * * *', () => { void runScheduledCrawl('20:00') })
 
   // Every 15 minutes — AI Scorer + Alert check
   cron.schedule('*/15 * * * *', async () => {
-    await runScorer()
-    await checkAndAlert()
+    try {
+      await runScorer()
+      await checkAndAlert()
+    } catch (err) {
+      logger.error('scheduler', `Scorer/alert cycle failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
   })
 
   logger.info('scheduler', 'All cron jobs registered')

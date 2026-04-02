@@ -2,7 +2,7 @@ import 'dotenv/config'
 import prisma from '../db.js'
 import { lookupReleaseDate, isRecent } from '../utils/spotify-lookup.js'
 
-const SKIP_SOURCES = ['GOOGLE_TRENDS', 'REDDIT']
+const SKIP_SOURCES = ['GOOGLE_TRENDS', 'REDDIT', 'YOUTUBE', 'TIKTOK', 'SOUNDCLOUD']
 
 // Patterns indicating garbage records from bad crawl parsing
 const GARBAGE_PATTERNS = [

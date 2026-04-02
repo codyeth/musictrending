@@ -7,20 +7,42 @@ import { logger } from '../utils/logger.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const ALLOWED_ACTIONS = new Set(['APPROVE', 'WATCH', 'REJECT'])
+
+// Simple token auth for dashboard API — reads DASHBOARD_TOKEN from env
+// Dashboard is localhost-only but we still protect the API endpoints
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const token = config.dashboard.token
+  if (!token) {
+    // No token configured → localhost-only, allow
+    next()
+    return
+  }
+  const provided = req.headers['x-dashboard-token'] ?? req.query['token']
+  if (provided !== token) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+  next()
+}
+
 export function startDashboard() {
   const app = express()
   app.use(express.json())
   app.use(express.static(__dirname))
 
   // GET /api/trends
-  app.get('/api/trends', async (req, res) => {
+  app.get('/api/trends', requireAuth, async (req, res) => {
     try {
       const { source, type, minScore, urgency, decided } = req.query
 
       const where: Record<string, unknown> = { status: 'COMPLETED' }
       if (source && source !== 'ALL') where.source = source
       if (type && type !== 'ALL') where.type = type
-      if (minScore) where.totalScore = { gte: parseInt(minScore as string) }
+      if (minScore) {
+        const score = parseInt(minScore as string, 10)
+        if (!isNaN(score)) where.totalScore = { gte: score }
+      }
       if (urgency && urgency !== 'ALL') where.urgency = urgency
       if (decided === 'pending') where.decision = null
       if (decided === 'decided') where.NOT = { decision: null }
@@ -39,15 +61,19 @@ export function startDashboard() {
   })
 
   // POST /api/decision
-  app.post('/api/decision', async (req, res) => {
+  app.post('/api/decision', requireAuth, async (req, res) => {
     try {
       const { trendId, action } = req.body
       if (!trendId || !action) return res.status(400).json({ error: 'Missing fields' })
 
+      if (!ALLOWED_ACTIONS.has(String(action).toUpperCase())) {
+        return res.status(400).json({ error: 'Invalid action' })
+      }
+
       const decision = await prisma.decision.upsert({
         where: { trendId: Number(trendId) },
-        update: { action, decidedAt: new Date() },
-        create: { trendId: Number(trendId), action },
+        update: { action: action as 'APPROVE' | 'WATCH' | 'REJECT', decidedAt: new Date() },
+        create: { trendId: Number(trendId), action: action as 'APPROVE' | 'WATCH' | 'REJECT' },
       })
       res.json(decision)
     } catch (err) {
@@ -57,7 +83,7 @@ export function startDashboard() {
   })
 
   // GET /api/stats
-  app.get('/api/stats', async (_req, res) => {
+  app.get('/api/stats', requireAuth, async (_req, res) => {
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -75,7 +101,7 @@ export function startDashboard() {
     }
   })
 
-  app.listen(config.dashboard.port, () => {
+  app.listen(config.dashboard.port, '127.0.0.1', () => {
     logger.info('dashboard', `Running at http://localhost:${config.dashboard.port}`)
   })
 }

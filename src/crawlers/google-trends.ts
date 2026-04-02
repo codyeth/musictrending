@@ -1,5 +1,6 @@
 import axios from 'axios'
 import * as cheerio from 'cheerio'
+import { createHash } from 'crypto'
 import prisma from '../db.js'
 import { logger } from '../utils/logger.js'
 import { classifyTrend } from '../utils/classify.js'
@@ -38,7 +39,8 @@ export async function crawlGoogleTrends() {
       const trends = await fetchDailyTrends(geo)
 
       for (const trend of trends) {
-        const externalId = `gtrends_${geo}_${trend.title.replace(/\s+/g, '_').slice(0, 40)}_${today}`
+        const titleHash = createHash('md5').update(trend.title).digest('hex').slice(0, 8)
+        const externalId = `gtrends_${geo}_${titleHash}_${today}`
         const existing = await prisma.trend.findUnique({ where: { externalId } })
         if (existing) continue
 

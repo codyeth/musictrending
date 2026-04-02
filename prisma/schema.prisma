@@ -8,13 +8,10 @@ datasource db {
 }
 
 enum TrendSource {
-  SPOTIFY
-  APPLE_MUSIC
-  SHAZAM
-  BILLBOARD
+  YOUTUBE
+  TIKTOK
+  SOUNDCLOUD
   REDDIT
-  NICONICO
-  MELON
   GOOGLE_TRENDS
   MANUAL
 }

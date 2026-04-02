@@ -6,7 +6,6 @@ import { initBot } from './bot/telegram-bot.js'
 import { startScheduler } from './scheduler.js'
 import { startDashboard } from './dashboard/server.js'
 import { crawlAll } from './crawlers/all.js'
-import { runScorer } from './processor/scorer.js'
 
 async function main() {
   logger.info('main', '🎵 Music Trend Tool starting...')
@@ -20,12 +19,11 @@ async function main() {
   startScheduler()
 
   logger.info('main', `Dashboard: http://localhost:${config.dashboard.port}`)
-  logger.info('main', `Features: OpenRouter=${config.hasOpenRouter} | Reddit=${config.hasReddit} | Spotify=${config.hasSpotify}`)
+  logger.info('main', `Features: OpenRouter=${config.hasOpenRouter} | Reddit=${config.hasReddit}`)
 
-  // Initial crawl on startup
+  // Initial crawl on startup — scorer runs on its own 15-min schedule
   logger.info('main', 'Running initial crawl...')
   await crawlAll()
-  await runScorer()
 
   process.on('SIGINT', async () => {
     logger.info('main', 'Shutting down...')

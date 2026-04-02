@@ -24,17 +24,19 @@ export async function lookupReleaseDate(title: string, artist: string): Promise<
   }
 }
 
-/** Returns true if the release date is within the last N days */
+/** Returns true if the release date is within the last N days.
+ *  Returns true (not skipped) if the date is unparseable — let scorer handle it. */
 export function isRecent(releaseDate: string, days: number): boolean {
+  const parsed = parseReleaseDate(releaseDate)
+  if (isNaN(parsed.getTime())) return true  // unknown date → don't skip
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-  return parseReleaseDate(releaseDate) >= cutoff
+  return parsed >= cutoff
 }
 
 /** Parse a release_date string (YYYY-MM-DD or YYYY) into a Date */
 export function parseReleaseDate(releaseDate: string): Date {
+  if (!releaseDate) return new Date(NaN)
   if (releaseDate.length === 4) return new Date(`${releaseDate}-01-01`)
   return new Date(releaseDate)
 }
 
-// Keep for Spotify chart crawling (still used for token in spotify.ts)
-export async function getSpotifyToken(): Promise<string | null> { return null }

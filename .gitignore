@@ -5,5 +5,6 @@ dist/
 data/*.db
 data/users.json
 data/subscriptions.json
+data/youtube-channels.json
 *.log
 .DS_Store
